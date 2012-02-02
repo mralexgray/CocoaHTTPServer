@@ -13,9 +13,16 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 - (void)unpublishBonjour;
 - (void)publishBonjour;
 
++ (void)bonjourThread;
++ (void)ignore:(NSTimer *)timer;
 + (void)startBonjourThreadIfNeeded;
 + (void)performBonjourBlock:(dispatch_block_t)block;
 
+@end
+
+@interface HTTPServer (Notifications)
+- (void)connectionDidDie:(NSNotification *)notification;
+- (void)webSocketDidDie:(NSNotification *)notification;
 @end
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -766,6 +773,8 @@ static NSThread *bonjourThread;
 	
 	[pool drain];
 }
+
++ (void)ignore:(NSTimer *)timer {}
 
 + (void)executeBonjourBlock:(dispatch_block_t)block
 {

@@ -166,7 +166,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 								// Replacement is bigger than what it is replacing.
 								// Make sure there is room in the buffer for the replacement.
 								
-								if (diff > (readBufferSize - bufLen))
+								if ((NSUInteger)diff > (readBufferSize - bufLen))
 								{
 									NSUInteger inc = MAX(diff, 256);
 									

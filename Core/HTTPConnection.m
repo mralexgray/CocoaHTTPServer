@@ -2154,7 +2154,7 @@ static NSMutableArray *recentNonces;
 				if (requestContentLength > 0)
 				{
 					// Start reading the request body
-					if (requestContentLength == -1)
+					if ((int)requestContentLength == -1)
 					{
 						// Chunked transfer
 						

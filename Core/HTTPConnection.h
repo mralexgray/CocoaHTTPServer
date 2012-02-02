@@ -54,7 +54,7 @@
 	NSMutableArray *ranges;
 	NSMutableArray *ranges_headers;
 	NSString *ranges_boundry;
-	int rangeIndex;
+	NSUInteger rangeIndex;
 	
 	UInt64 requestContentLength;
 	UInt64 requestContentLengthReceived;
