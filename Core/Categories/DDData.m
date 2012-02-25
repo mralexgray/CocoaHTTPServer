@@ -67,8 +67,8 @@ static int8_t kDecodingTable[256];
 		}
 		
 		outbuf [0] = (inbuf [0] & 0xFC) >> 2;
-		outbuf [1] = ((inbuf [0] & 0x03) << 4) | ((inbuf [1] & 0xF0) >> 4);
-		outbuf [2] = ((inbuf [1] & 0x0F) << 2) | ((inbuf [2] & 0xC0) >> 6);
+		outbuf [1] = (unsigned char)((inbuf [0] & 0x03) << 4) | ((inbuf [1] & 0xF0) >> 4);
+		outbuf [2] = (unsigned char)((inbuf [1] & 0x0F) << 2) | ((inbuf [2] & 0xC0) >> 6);
 		outbuf [3] = inbuf [2] & 0x3F;
 		ctcopy = 4;
 		
@@ -115,12 +115,12 @@ static int8_t kDecodingTable[256];
 			|| kDecodingTable[i2] < 0 || kDecodingTable[i3] < 0)
             return nil;
 		
-        output[outputPoint++] = (kDecodingTable[i0] << 2) | (kDecodingTable[i1] >> 4);
+        output[outputPoint++] = (uint8_t)(kDecodingTable[i0] << 2) | (kDecodingTable[i1] >> 4);
         if (outputPoint < outputLength) {
-            output[outputPoint++] = ((kDecodingTable[i1] & 0xf) << 4) | (kDecodingTable[i2] >> 2);
+            output[outputPoint++] = (uint8_t)((kDecodingTable[i1] & 0xf) << 4) | (kDecodingTable[i2] >> 2);
         }
         if (outputPoint < outputLength) {
-            output[outputPoint++] = ((kDecodingTable[i2] & 0x3) << 6) | kDecodingTable[i3];
+            output[outputPoint++] = (uint8_t)((kDecodingTable[i2] & 0x3) << 6) | kDecodingTable[i3];
         }
     }
     
