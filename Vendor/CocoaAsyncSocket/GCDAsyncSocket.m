@@ -3184,7 +3184,7 @@ enum GCDAsyncSocketConfig
 			
 			if (getpeername(socket4FD, (struct sockaddr *)&sockaddr4, &sockaddr4len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr4 length:sockaddr4len];
+				result = [NSData dataWithBytes:&sockaddr4 length:sockaddr4len];
 			}
 		}
 		
@@ -3195,7 +3195,7 @@ enum GCDAsyncSocketConfig
 			
 			if (getpeername(socket6FD, (struct sockaddr *)&sockaddr6, &sockaddr6len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr6 length:sockaddr6len];
+				result = [NSData dataWithBytes:&sockaddr6 length:sockaddr6len];
 			}
 		}
 	};
@@ -3205,7 +3205,7 @@ enum GCDAsyncSocketConfig
 	else
 		dispatch_sync(socketQueue, block);
 	
-	return [result autorelease];
+	return result;
 }
 
 - (NSData *)localAddress
@@ -3220,7 +3220,7 @@ enum GCDAsyncSocketConfig
 			
 			if (getsockname(socket4FD, (struct sockaddr *)&sockaddr4, &sockaddr4len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr4 length:sockaddr4len];
+				result = [NSData dataWithBytes:&sockaddr4 length:sockaddr4len];
 			}
 		}
 		
@@ -3231,7 +3231,7 @@ enum GCDAsyncSocketConfig
 			
 			if (getsockname(socket6FD, (struct sockaddr *)&sockaddr6, &sockaddr6len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr6 length:sockaddr6len];
+				result = [NSData dataWithBytes:&sockaddr6 length:sockaddr6len];
 			}
 		}
 	};
@@ -3241,7 +3241,7 @@ enum GCDAsyncSocketConfig
 	else
 		dispatch_sync(socketQueue, block);
 	
-	return [result autorelease];
+	return result;
 }
 
 - (BOOL)isIPv4
