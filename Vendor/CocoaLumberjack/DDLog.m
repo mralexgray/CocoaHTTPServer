@@ -675,6 +675,7 @@ typedef struct LoggerNode LoggerNode;
 		// Need to create loggerQueue if loggerNode doesn't provide one.
 		
 		LoggerNode *loggerNode = malloc(sizeof(LoggerNode));
+		loggerNode->loggerQueue = NULL;
 		loggerNode->logger = [logger retain];
 		
 		if ([logger respondsToSelector:@selector(loggerQueue)])
