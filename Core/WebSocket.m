@@ -5,6 +5,10 @@
 #import "DDData.h"
 #import "HTTPLogging.h"
 
+#if ! __has_feature(objc_arc)
+#warning This file must be compiled with ARC. Use -fobjc-arc flag (or convert project to ARC).
+#endif
+
 // Log levels: off, error, warn, info, verbose
 // Other flags : trace
 static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
@@ -107,7 +111,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	else if (![upgradeHeaderValue caseInsensitiveCompare:@"WebSocket"] == NSOrderedSame) {
 		isWebSocket = NO;
 	}
-	else if (![connectionHeaderValue caseInsensitiveCompare:@"Upgrade"] == NSOrderedSame) {
+	else if ([connectionHeaderValue rangeOfString:@"Upgrade" options:NSCaseInsensitiveSearch].location == NSNotFound) {
 		isWebSocket = NO;
 	}
 	
@@ -139,9 +143,9 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 {
 	NSString *key = [request headerField:@"Sec-WebSocket-Key"];
 	BOOL isRFC6455 = (key != nil);
-	
+
 	HTTPLogTrace2(@"%@: %@ - %@", THIS_FILE, THIS_METHOD, (isRFC6455 ? @"YES" : @"NO"));
-	
+
 	return isRFC6455;
 }
 
@@ -190,7 +194,6 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	HTTPLogTrace();
 	
 	dispatch_release(websocketQueue);
-	
 	
 	[asyncSocket setDelegate:nil delegateQueue:NULL];
 	[asyncSocket disconnect];
@@ -530,11 +533,16 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 }
 
 - (void)sendMessage:(NSString *)msg
-{
-	HTTPLogTrace();
-	
+{	
 	NSData *msgData = [msg dataUsingEncoding:NSUTF8StringEncoding];
-	NSMutableData *data = nil;
+	[self sendData:msgData];
+}
+
+- (void)sendData:(NSData *)msgData
+{
+    HTTPLogTrace();
+    
+    NSMutableData *data = nil;
 	
 	if (isRFC6455)
 	{
@@ -566,7 +574,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	else
 	{
 		data = [NSMutableData dataWithCapacity:([msgData length] + 2)];
-		
+        
 		[data appendBytes:"\x00" length:1];
 		[data appendData:msgData];
 		[data appendBytes:"\xFF" length:1];
@@ -677,7 +685,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	{
 		UInt8 *pFrame = (UInt8 *)[data bytes];
 		UInt8 frame = *pFrame;
-		
+
 		if ([self isValidWebSocketFrame: frame])
 		{
 			nextOpCode = (frame & 0x0F);
@@ -750,7 +758,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 			[self didClose];
 			return;
 		}
-		
+
 		// Read next frame
 		[asyncSocket readDataToLength:1 withTimeout:TIMEOUT_NONE tag:TAG_PAYLOAD_PREFIX];
 	}

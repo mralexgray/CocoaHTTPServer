@@ -4,13 +4,15 @@
 @class HTTPConnection;
 
 // 
-// This class is a UnitTest for the delayResponeHeaders capability of HTTPConnection
+// This class is a UnitTest for the delayResponseHeaders capability of HTTPConnection
 // 
 
 @interface HTTPResponseTest : NSObject <HTTPResponse>
 {
-	HTTPConnection *connection;
-	dispatch_queue_t connectionQueue;
+	// Parents retain children, children do NOT retain parents
+	
+	__unsafe_unretained HTTPConnection *connection;
+	dispatch_queue_t responseQueue;
 	
 	BOOL readyToSendResponseHeaders;
 }
