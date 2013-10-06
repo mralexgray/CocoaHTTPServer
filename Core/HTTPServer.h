@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "AtoZTypes.h"
 
 @class GCDAsyncSocket;
 @class WebSocket;
@@ -192,6 +193,8 @@
 - (void)stop:(BOOL)keepExistingConnections;
 
 - (BOOL)isRunning;
+
+@property (nonatomic) AZStatus running;
 
 - (void)addWebSocket:(WebSocket *)ws;
 

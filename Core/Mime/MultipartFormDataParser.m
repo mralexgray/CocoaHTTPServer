@@ -369,8 +369,6 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN;
 	return offset;
 }
 
-
-
 - (int) findHeaderEnd:(NSData*) workingData fromOffset:(int)offset {
     char* bytes = (char*) workingData.bytes; 
     int inputLength = workingData.length;

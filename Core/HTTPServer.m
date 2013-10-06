@@ -53,6 +53,14 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 
 @implementation HTTPServer
 
+- (void) setRunning:(AZStatus)run {  NSError *error;
+	
+	if ( self.isRunning == run)  return;
+	run  ? [self start:&error] : [self stop];
+	if (error || (_running = self.isRunning) != run) 
+		NSLog(@"Error %@ server: %@", run? @"starting" : @"stopping", error);
+}
+
 /**
  * Standard Constructor.
  * Instantiates an HTTP server, but does not start it.
@@ -62,7 +70,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	if ((self = [super init]))
 	{
 		HTTPLogTrace();
-		
+		_running = AZMIXED;
 		// Initialize underlying dispatch queue and GCD based tcp socket
 		serverQueue = dispatch_queue_create("HTTPServer", NULL);
 		asyncSocket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:serverQueue];
@@ -751,7 +759,7 @@ static NSThread *bonjourThread;
 		
 		[NSTimer scheduledTimerWithTimeInterval:[[NSDate distantFuture] timeIntervalSinceNow]
 		                                 target:self
-		                               selector:NSSelectorFromString(@"donothingatall:")
+		                               selector:@selector(donothingatall:)
 		                               userInfo:nil
 		                                repeats:YES];
 		

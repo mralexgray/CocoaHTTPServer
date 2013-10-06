@@ -1,12 +1,179 @@
+<!DOCTYPE html>
+
 <html>
 <head>
+<meta charset='UTF-8'>
+
 <title>SimpleWebSocketServer</title>
-<script type="text/javascript" src="WebSocketTest.js"></script>
-<script type="text/javascript" src="WebSocketTest2.js"></script>
+<link href=
+"http://mrgray.com/js/jquery-gridly/stylesheets/jquery.gridly.css" rel="stylesheet" />
+<link href="http://mrgray.com/js/jquery-gridly/stylesheets/sample.css" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css?family=Lato" rel="stylesheet" />
+<script src="http://mrgray.com/jquery.js"></script>
+<script src="http://mrgray.com/js/jquery-gridly/javascripts/jquery.gridly.js"></script>
+<!-- <script src="http://mrgray.com/js/jquery-gridly/javascripts/sample.js"></script>-->
+<script src="http://mrgray.com/js/jquery-gridly/javascripts/rainbow.js"></script>
+<script src="WebSocketTest.js"></script>
+<script src="WebSocketTest2.js"></script>
+<script>
+(function() {
+ $(function () {
+	var brick = "<div class='brick small'><div class='delete'>&times;<\/div><\/div>";
+	$(document).on("click", ".gridly .brick", function (event) {
+						var $this, size;
+						event.preventDefault();
+						event.stopPropagation();
+						$this = $(this);
+						$this.toggleClass('small');
+						$this.toggleClass('large');
+						size = $this.hasClass('small') ? 140 : $this.hasClass('large') ? 300 : size;
+						$this.data('width', size);
+						$this.data('height', size);
+						return $('.gridly').gridly('layout');
+						});
+	$(document).on("click", ".gridly .delete", function (event) {
+						var $this;
+						event.preventDefault();
+						event.stopPropagation();
+						$this = $(this);
+						$this.closest('.brick').remove();
+						return $('.gridly').gridly('layout');
+						});
+	$(document).on("click", ".add", function (event) {
+						event.preventDefault();
+						event.stopPropagation();
+						$('.gridly').append(brick);
+						return $('.gridly').gridly();
+						});
+
+	var exists = "WebSocket" in window ? 'WebSocket' : null;
+	if (exists == null) {	alert("Your browser doesn't support Websockets."); return;	};
+	var connection = new window[exists]("ws://localhost:12345");
+	// When the connection is open, send some data to the server
+	connection.onopen = function () {
+		connection.send('Ping'); // Send the message 'Ping' to the server
+	};
+	connection.onerror = function (error) {
+		console.log('WebSocket Error ' + error);
+	};
+
+	// Log messages from the server
+	connection.onmessage = function (e) {
+		$('.gridly').append(brick);
+		console.log('Server: ' + e.data);
+	};
+//		var ws = new WebSocket("ws://localhost:12345/");
+//		ws.onopen = function () {
+//		console.log(ws + ' connected');
+//		};
+//	ws.onmessage = function (evt) {
+//	$('.gridly').append(brick); // Web Socket is connected, You can send data now ws.send("Hey man, you got the time?"); } //
+	// ws.onmessage = function (evt) {
+//	alert("received: " + evt.data);
+	// } // ws.onclose = function() { alert("websocket is closed"); }; }
+//	}
+
+    return $('.gridly').gridly();
+  });
+
+}).call(this);
+
+</script>
 </head>
+
 <body bgcolor="#FFFFFF">
-<a href="javascript:WebSocketTest()">Does my browser support WebSockets?</a><br/>
-<br/>
-<a href="javascript:WebSocketTest2()">Open WebSocket and tell me what time it is.</a>
+<a href="javascript:WebSocketTest()">Does my browser support
+WebSockets?</a><br>
+<br>
+<a href="javascript:WebSocketTest2()">Open WebSocket and tell me what time
+it is.</a>
+
+<div class="content">
+<section class="example">
+<div class="gridly">
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+
+<div class="brick small">
+<a class="delete" href="#">×</a>
+</div>
+</div>
+
+<p class="actions"><a class="add button" href="#">Add</a></p>
+</section>
+</div>
 </body>
 </html>
