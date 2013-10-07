@@ -9,31 +9,6 @@
 #warning This file must be compiled with ARC. Use -fobjc-arc flag (or convert project to ARC).
 #endif
 
-// Does ARC support support GCD objects?
-// It does if the minimum deployment target is iOS 6+ or Mac OS X 8+
-
-#if TARGET_OS_IPHONE
-
-  // Compiling for iOS
-
-  #if __IPHONE_OS_VERSION_MIN_REQUIRED >= 60000 // iOS 6.0 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else                                         // iOS 5.X or earlier
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1
-  #endif
-
-#else
-
-  // Compiling for Mac OS X
-
-  #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1080     // Mac OS X 10.8 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1     // Mac OS X 10.7 or earlier
-  #endif
-
-#endif
-
 // Log levels: off, error, warn, info, verbose
 // Other flags : trace
 static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
@@ -123,8 +98,8 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	// If we find them, and they have the proper value,
 	// we can safely assume this is a websocket request.
 	
-	NSString *upgradeHeaderValue = [request headerField:@"Upgrade"];
-	NSString *connectionHeaderValue = [request headerField:@"Connection"];
+	NSString *upgradeHeaderValue = [request valueForHeaderField:@"Upgrade"];
+	NSString *connectionHeaderValue = [request valueForHeaderField:@"Connection"];
 	
 	BOOL isWebSocket = YES;
 	
@@ -145,8 +120,8 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 
 + (BOOL)isVersion76Request:(HTTPMessage *)request
 {
-	NSString *key1 = [request headerField:@"Sec-WebSocket-Key1"];
-	NSString *key2 = [request headerField:@"Sec-WebSocket-Key2"];
+	NSString *key1 = [request valueForHeaderField:@"Sec-WebSocket-Key1"];
+	NSString *key2 = [request valueForHeaderField:@"Sec-WebSocket-Key2"];
 	
 	BOOL isVersion76;
 	
@@ -164,7 +139,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 
 + (BOOL)isRFC6455Request:(HTTPMessage *)request
 {
-	NSString *key = [request headerField:@"Sec-WebSocket-Key"];
+	NSString *key = [request valueForHeaderField:@"Sec-WebSocket-Key"];
 	BOOL isRFC6455 = (key != nil);
 
 	HTTPLogTrace2(@"%@: %@ - %@", THIS_FILE, THIS_METHOD, (isRFC6455 ? @"YES" : @"NO"));
@@ -212,9 +187,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 - (void)dealloc {	HTTPLogTrace();
 
 	
-	#if NEEDS_DISPATCH_RETAIN_RELEASE
 	dispatch_release(websocketQueue);
-	#endif
 	
 	[asyncSocket setDelegate:nil delegateQueue:NULL];
 	[asyncSocket disconnect];
@@ -225,7 +198,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	__block id result = nil;
 	
 	dispatch_sync(websocketQueue, ^{
-		result = delegate;
+		result = self->delegate;
 	});
 	
 	return result;
@@ -234,7 +207,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 - (void)setDelegate:(id)newDelegate
 {
 	dispatch_async(websocketQueue, ^{
-		delegate = newDelegate;
+		self->delegate = newDelegate;
 	});
 }
 
@@ -243,7 +216,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 /**
  * Starting point for the WebSocket after it has been fully initialized (including subclasses).
  * This method is called by the HTTPConnection it is spawned from.
-**/
+ **/
 - (void)start
 {
 	// This method is not exactly designed to be overriden.
@@ -251,10 +224,10 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	
 	dispatch_async(websocketQueue, ^{ @autoreleasepool {
 		
-		if (isStarted) return;
-		isStarted = YES;
+		if (self->isStarted) return;
+		self->isStarted = YES;
 		
-		if (isVersion76)
+		if (self->isVersion76)
 		{
 			[self readRequestBody];
 		}
@@ -269,7 +242,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 /**
  * This method is called by the HTTPServer if it is asked to stop.
  * The server, in turn, invokes stop on each WebSocket instance.
-**/
+ **/
 - (void)stop
 {
 	// This method is not exactly designed to be overriden.
@@ -277,7 +250,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	
 	dispatch_async(websocketQueue, ^{ @autoreleasepool {
 		
-		[asyncSocket disconnect];
+		[self->asyncSocket disconnect];
 	}});
 }
 
@@ -294,7 +267,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 - (NSString *)originResponseHeaderValue {	HTTPLogTrace();
 
 	
-	NSString *origin = [request headerField:@"Origin"];
+	NSString *origin = [request valueForHeaderField:@"Origin"];
 	
 	if (origin == nil)
 	{
@@ -314,9 +287,9 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	NSString *location;
 	
 	NSString *scheme = [asyncSocket isSecure] ? @"wss" : @"ws";
-	NSString *host = [request headerField:@"Host"];
+	NSString *host = [request valueForHeaderField:@"Host"];
 	
-	NSString *requestUri = [[request url] relativeString];
+	NSString *requestUri = [request.URL relativeString];
 	
 	if (host == nil)
 	{
@@ -333,7 +306,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 }
 
 - (NSString *)secWebSocketKeyResponseHeaderValue {
-	NSString *key = [request headerField: @"Sec-WebSocket-Key"];
+	NSString *key = [request valueForHeaderField: @"Sec-WebSocket-Key"];
 	NSString *guid = @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	return [[key stringByAppendingString: guid] dataUsingEncoding: NSUTF8StringEncoding].sha1Digest.base64Encoded;
 }
@@ -391,8 +364,8 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	                                                              description:@"Web Socket Protocol Handshake"
 	                                                                  version:HTTPVersion1_1];
 	
-	[wsResponse setHeaderField:@"Upgrade" value:@"WebSocket"];
-	[wsResponse setHeaderField:@"Connection" value:@"Upgrade"];
+	[wsResponse setValue:@"WebSocket" forHeaderField:@"Upgrade"];
+	[wsResponse setValue:@"Upgrade" forHeaderField:@"Connection"];
 	
 	// Note: It appears that WebSocket-Origin and WebSocket-Location
 	// are required for Google's Chrome implementation to work properly.
@@ -409,14 +382,14 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	NSString *originField = isVersion76 ? @"Sec-WebSocket-Origin" : @"WebSocket-Origin";
 	NSString *locationField = isVersion76 ? @"Sec-WebSocket-Location" : @"WebSocket-Location";
 	
-	[wsResponse setHeaderField:originField value:originValue];
-	[wsResponse setHeaderField:locationField value:locationValue];
+	[wsResponse setValue:originValue forHeaderField:originField];
+	[wsResponse setValue:locationValue forHeaderField:locationField];
 	
 	NSString *acceptValue = [self secWebSocketKeyResponseHeaderValue];
 	if (acceptValue) {
-		[wsResponse setHeaderField: @"Sec-WebSocket-Accept" value: acceptValue];
+		[wsResponse setValue: acceptValue forHeaderField: @"Sec-WebSocket-Accept"];
 	}
-
+	
 	NSData *responseHeaders = [wsResponse messageData];
 	
 	
@@ -481,8 +454,8 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	NSAssert(isVersion76, @"WebSocket version 75 doesn't contain a response body");
 	NSAssert([d3 length] == 8, @"Invalid requestBody length");
 	
-	NSString *key1 = [request headerField:@"Sec-WebSocket-Key1"];
-	NSString *key2 = [request headerField:@"Sec-WebSocket-Key2"];
+	NSString *key1 = [request valueForHeaderField:@"Sec-WebSocket-Key1"];
+	NSString *key2 = [request valueForHeaderField:@"Sec-WebSocket-Key2"];
 	
 	NSData *d1 = [self processKey:key1];
 	NSData *d2 = [self processKey:key2];
@@ -543,7 +516,14 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 
 	
 	NSData *msgData = [msg dataUsingEncoding:NSUTF8StringEncoding];
-	NSMutableData *data = nil;
+	[self sendData:msgData];
+}
+
+- (void)sendData:(NSData *)msgData
+{
+    HTTPLogTrace();
+    
+    NSMutableData *data = nil;
 	
 	if (isRFC6455)
 	{
@@ -575,7 +555,7 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 	else
 	{
 		data = [NSMutableData dataWithCapacity:([msgData length] + 2)];
-
+        
 		[data appendBytes:"\x00" length:1];
 		[data appendData:msgData];
 		[data appendBytes:"\xFF" length:1];

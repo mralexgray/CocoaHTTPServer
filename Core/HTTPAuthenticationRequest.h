@@ -1,45 +1,29 @@
 #import <Foundation/Foundation.h>
 
 #if TARGET_OS_IPHONE
-  // Note: You may need to add the CFNetwork Framework to your project
-  #import <CFNetwork/CFNetwork.h>
+#import <CFNetwork/CFNetwork.h>
 #endif
 
 @class HTTPMessage;
 
-
 @interface HTTPAuthenticationRequest : NSObject
-{
-	BOOL isBasic;
-	BOOL isDigest;
-	
-	NSString *base64Credentials;
-	
-	NSString *username;
-	NSString *realm;
-	NSString *nonce;
-	NSString *uri;
-	NSString *qop;
-	NSString *nc;
-	NSString *cnonce;
-	NSString *response;
-}
+
 - (id)initWithRequest:(HTTPMessage *)request;
 
-- (BOOL)isBasic;
-- (BOOL)isDigest;
+@property (readonly, getter = isBasic) BOOL basic;
+@property (readonly, getter = isDigest) BOOL digest;
 
 // Basic
-- (NSString *)base64Credentials;
+@property (readonly) NSString *base64Credentials;
 
 // Digest
-- (NSString *)username;
-- (NSString *)realm;
-- (NSString *)nonce;
-- (NSString *)uri;
-- (NSString *)qop;
-- (NSString *)nc;
-- (NSString *)cnonce;
-- (NSString *)response;
+@property (readonly) NSString *username;
+@property (readonly) NSString *realm;
+@property (readonly) NSString *nonce;
+@property (readonly) NSString *URI;
+@property (readonly) NSString *qualityOfProtection;
+@property (readonly) NSString *nonceCount;
+@property (readonly) NSString *cnonce;
+@property (readonly) NSString *response;
 
 @end

@@ -19,31 +19,6 @@
 #warning This file must be compiled with ARC. Use -fobjc-arc flag (or convert project to ARC).
 #endif
 
-// Does ARC support support GCD objects?
-// It does if the minimum deployment target is iOS 6+ or Mac OS X 10.8+
-
-#if TARGET_OS_IPHONE
-
-  // Compiling for iOS
-
-  #if __IPHONE_OS_VERSION_MIN_REQUIRED >= 60000 // iOS 6.0 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else                                         // iOS 5.X or earlier
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1
-  #endif
-
-#else
-
-  // Compiling for Mac OS X
-
-  #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1080     // Mac OS X 10.8 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1     // Mac OS X 10.7 or earlier
-  #endif
-
-#endif
-
 // We probably shouldn't be using DDLog() statements within the DDLog implementation.
 // But we still want to leave our log statements for any future debugging,
 // and to allow other developers to trace the implementation (which is a great learning tool).
@@ -525,7 +500,7 @@
 	__block unsigned long long result;
 	
 	dispatch_block_t block = ^{
-		result = maximumFileSize;
+		result = self->maximumFileSize;
 	};
 	
 	// The design of this method is taken from the DDAbstractLogger implementation.
@@ -544,7 +519,7 @@
 	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
 	
 	dispatch_sync(globalLoggingQueue, ^{
-		dispatch_sync(loggerQueue, block);
+		dispatch_sync(self->loggerQueue, block);
 	});
 	
 	return result;
@@ -554,7 +529,7 @@
 {
 	dispatch_block_t block = ^{ @autoreleasepool {
 		
-		maximumFileSize = newMaximumFileSize;
+		self->maximumFileSize = newMaximumFileSize;
 		[self maybeRollLogFileDueToSize];
 		
 	}};
@@ -575,7 +550,7 @@
 	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
 	
 	dispatch_async(globalLoggingQueue, ^{
-		dispatch_async(loggerQueue, block);
+		dispatch_async(self->loggerQueue, block);
 	});
 }
 
@@ -584,7 +559,7 @@
 	__block NSTimeInterval result;
 	
 	dispatch_block_t block = ^{
-		result = rollingFrequency;
+		result = self->rollingFrequency;
 	};
 	
 	// The design of this method is taken from the DDAbstractLogger implementation.
@@ -603,7 +578,7 @@
 	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
 	
 	dispatch_sync(globalLoggingQueue, ^{
-		dispatch_sync(loggerQueue, block);
+		dispatch_sync(self->loggerQueue, block);
 	});
 	
 	return result;
@@ -613,7 +588,7 @@
 {
 	dispatch_block_t block = ^{ @autoreleasepool {
 		
-		rollingFrequency = newRollingFrequency;
+		self->rollingFrequency = newRollingFrequency;
 		[self maybeRollLogFileDueToAge];
 	}};
 	
@@ -633,7 +608,7 @@
 	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
 	
 	dispatch_async(globalLoggingQueue, ^{
-		dispatch_async(loggerQueue, block);
+		dispatch_async(self->loggerQueue, block);
 	});
 }
 
@@ -674,14 +649,14 @@
 		
 	}});
 	
-	#if NEEDS_DISPATCH_RETAIN_RELEASE
+	#if !OS_OBJECT_USE_OBJC
 	dispatch_source_t theRollingTimer = rollingTimer;
 	dispatch_source_set_cancel_handler(rollingTimer, ^{
 		dispatch_release(theRollingTimer);
 	});
 	#endif
 	
-	uint64_t delay = [logFileRollingDate timeIntervalSinceNow] * NSEC_PER_SEC;
+	uint64_t delay = (uint64_t)([logFileRollingDate timeIntervalSinceNow] * NSEC_PER_SEC);
 	dispatch_time_t fireTime = dispatch_time(DISPATCH_TIME_NOW, delay);
 	
 	dispatch_source_set_timer(rollingTimer, fireTime, DISPATCH_TIME_FOREVER, 1.0);
@@ -711,7 +686,7 @@
 		NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
 		
 		dispatch_async(globalLoggingQueue, ^{
-			dispatch_async(loggerQueue, block);
+			dispatch_async(self->loggerQueue, block);
 		});
 	}
 }

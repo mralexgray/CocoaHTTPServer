@@ -8,6 +8,25 @@
 //  https://github.com/robbiehanson/CocoaAsyncSocket
 //
 
+#import "GCDAsyncSocket.h"
+
+#if TARGET_OS_IPHONE
+#import <CFNetwork/CFNetwork.h>
+#endif
+
+#import <arpa/inet.h>
+#import <fcntl.h>
+#import <ifaddrs.h>
+#import <netdb.h>
+#import <netinet/in.h>
+#import <net/if.h>
+#import <sys/socket.h>
+#import <sys/types.h>
+#import <sys/ioctl.h>
+#import <sys/poll.h>
+#import <sys/uio.h>
+#import <unistd.h>
+
 #if ! __has_feature(objc_arc)
 #warning This file must be compiled with ARC. Use -fobjc-arc flag (or convert project to ARC).
 // For more information see: https://github.com/robbiehanson/CocoaAsyncSocket/wiki/ARC
@@ -15,7 +34,7 @@
 
 /**
  * Does ARC support support GCD objects?
- * It does if the minimum deployment target is iOS 6+ or Mac OS X 8+
+ * It does if the minimum deployment target is iOS 6+ or Mac OS X 10.8+
 **/
 #if TARGET_OS_IPHONE
 
@@ -39,32 +58,13 @@
 
 #endif
 
-#import "GCDAsyncSocket.h"
-
-#if TARGET_OS_IPHONE
-  #import <CFNetwork/CFNetwork.h>
-#endif
-
-#import <arpa/inet.h>
-#import <fcntl.h>
-#import <ifaddrs.h>
-#import <netdb.h>
-#import <netinet/in.h>
-#import <net/if.h>
-#import <sys/socket.h>
-#import <sys/types.h>
-#import <sys/ioctl.h>
-#import <sys/poll.h>
-#import <sys/uio.h>
-#import <unistd.h>
-
 
 #if 0
 
 // Logging Enabled - See log level below
 
 // Logging uses the CocoaLumberjack framework (which is also GCD based).
-// http://code.google.com/p/cocoalumberjack/
+// https://github.com/robbiehanson/CocoaLumberjack
 // 
 // It allows us to do a lot of logging without significantly slowing down the code.
 #import "DDLog.h"
@@ -178,8 +178,60 @@ enum GCDAsyncSocketConfig
   static NSThread *cfstreamThread;  // Used for CFStreams
 #endif
 
-@interface GCDAsyncSocket (Private)
-
+@interface GCDAsyncSocket ()
+{
+	uint32_t flags;
+	uint16_t config;
+	
+#if __has_feature(objc_arc_weak)
+	__weak id delegate;
+#else
+	__unsafe_unretained id delegate;
+#endif
+	dispatch_queue_t delegateQueue;
+	
+	int socket4FD;
+	int socket6FD;
+	int connectIndex;
+	NSData * connectInterface4;
+	NSData * connectInterface6;
+	
+	dispatch_queue_t socketQueue;
+	
+	dispatch_source_t accept4Source;
+	dispatch_source_t accept6Source;
+	dispatch_source_t connectTimer;
+	dispatch_source_t readSource;
+	dispatch_source_t writeSource;
+	dispatch_source_t readTimer;
+	dispatch_source_t writeTimer;
+	
+	NSMutableArray *readQueue;
+	NSMutableArray *writeQueue;
+	
+	GCDAsyncReadPacket *currentRead;
+	GCDAsyncWritePacket *currentWrite;
+	
+	unsigned long socketFDBytesAvailable;
+	
+	GCDAsyncSocketPreBuffer *preBuffer;
+		
+#if TARGET_OS_IPHONE
+	CFStreamClientContext streamContext;
+	CFReadStreamRef readStream;
+	CFWriteStreamRef writeStream;
+#endif
+#if SECURE_TRANSPORT_MAYBE_AVAILABLE
+	SSLContextRef sslContext;
+	GCDAsyncSocketPreBuffer *sslPreBuffer;
+	size_t sslWriteCachedLength;
+	OSStatus sslErrCode;
+#endif
+	
+	void *IsOnSocketQueueOrTargetQueueKey;
+	
+	id userData;
+}
 // Accepting
 - (BOOL)doAccept:(int)socketFD;
 
@@ -196,7 +248,6 @@ enum GCDAsyncSocketConfig
 
 // Disconnect
 - (void)closeWithError:(NSError *)error;
-- (void)close;
 - (void)maybeClose;
 
 // Errors
@@ -1017,6 +1068,28 @@ enum GCDAsyncSocketConfig
 			socketQueue = dispatch_queue_create([GCDAsyncSocketQueueName UTF8String], NULL);
 		}
 		
+		// The dispatch_queue_set_specific() and dispatch_get_specific() functions take a "void *key" parameter.
+		// From the documentation:
+		//
+		// > Keys are only compared as pointers and are never dereferenced.
+		// > Thus, you can use a pointer to a static variable for a specific subsystem or
+		// > any other value that allows you to identify the value uniquely.
+		//
+		// We're just going to use the memory address of an ivar.
+		// Specifically an ivar that is explicitly named for our purpose to make the code more readable.
+		//
+		// However, it feels tedious (and less readable) to include the "&" all the time:
+		// dispatch_get_specific(&IsOnSocketQueueOrTargetQueueKey)
+		//
+		// So we're going to make it so it doesn't matter if we use the '&' or not,
+		// by assigning the value of the ivar to the address of the ivar.
+		// Thus: IsOnSocketQueueOrTargetQueueKey == &IsOnSocketQueueOrTargetQueueKey;
+		
+		IsOnSocketQueueOrTargetQueueKey = &IsOnSocketQueueOrTargetQueueKey;
+		
+		void *nonNullUnusedPointer = (__bridge void *)self;
+		dispatch_queue_set_specific(socketQueue, IsOnSocketQueueOrTargetQueueKey, nonNullUnusedPointer, NULL);
+		
 		readQueue = [[NSMutableArray alloc] initWithCapacity:5];
 		currentRead = nil;
 		
@@ -1032,7 +1105,7 @@ enum GCDAsyncSocketConfig
 {
 	LogInfo(@"%@ - %@ (start)", THIS_METHOD, self);
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		[self closeWithError:nil];
 	}
@@ -1062,7 +1135,7 @@ enum GCDAsyncSocketConfig
 
 - (id)delegate
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return delegate;
 	}
@@ -1071,7 +1144,7 @@ enum GCDAsyncSocketConfig
 		__block id result;
 		
 		dispatch_sync(socketQueue, ^{
-			result = delegate;
+			result = self->delegate;
 		});
 		
 		return result;
@@ -1081,10 +1154,10 @@ enum GCDAsyncSocketConfig
 - (void)setDelegate:(id)newDelegate synchronously:(BOOL)synchronously
 {
 	dispatch_block_t block = ^{
-		delegate = newDelegate;
+		self->delegate = newDelegate;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue) {
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey)) {
 		block();
 	}
 	else {
@@ -1107,7 +1180,7 @@ enum GCDAsyncSocketConfig
 
 - (dispatch_queue_t)delegateQueue
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return delegateQueue;
 	}
@@ -1116,7 +1189,7 @@ enum GCDAsyncSocketConfig
 		__block dispatch_queue_t result;
 		
 		dispatch_sync(socketQueue, ^{
-			result = delegateQueue;
+			result = self->delegateQueue;
 		});
 		
 		return result;
@@ -1128,14 +1201,14 @@ enum GCDAsyncSocketConfig
 	dispatch_block_t block = ^{
 		
 		#if NEEDS_DISPATCH_RETAIN_RELEASE
-		if (delegateQueue) dispatch_release(delegateQueue);
+		if (self->delegateQueue) dispatch_release(self->delegateQueue);
 		if (newDelegateQueue) dispatch_retain(newDelegateQueue);
 		#endif
 		
-		delegateQueue = newDelegateQueue;
+		self->delegateQueue = newDelegateQueue;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue) {
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey)) {
 		block();
 	}
 	else {
@@ -1158,7 +1231,7 @@ enum GCDAsyncSocketConfig
 
 - (void)getDelegate:(id *)delegatePtr delegateQueue:(dispatch_queue_t *)delegateQueuePtr
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		if (delegatePtr) *delegatePtr = delegate;
 		if (delegateQueuePtr) *delegateQueuePtr = delegateQueue;
@@ -1169,8 +1242,8 @@ enum GCDAsyncSocketConfig
 		__block dispatch_queue_t dqPtr = NULL;
 		
 		dispatch_sync(socketQueue, ^{
-			dPtr = delegate;
-			dqPtr = delegateQueue;
+			dPtr = self->delegate;
+			dqPtr = self->delegateQueue;
 		});
 		
 		if (delegatePtr) *delegatePtr = dPtr;
@@ -1182,17 +1255,17 @@ enum GCDAsyncSocketConfig
 {
 	dispatch_block_t block = ^{
 		
-		delegate = newDelegate;
+		self->delegate = newDelegate;
 		
 		#if NEEDS_DISPATCH_RETAIN_RELEASE
-		if (delegateQueue) dispatch_release(delegateQueue);
+		if (self->delegateQueue) dispatch_release(self->delegateQueue);
 		if (newDelegateQueue) dispatch_retain(newDelegateQueue);
 		#endif
 		
-		delegateQueue = newDelegateQueue;
+		self->delegateQueue = newDelegateQueue;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue) {
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey)) {
 		block();
 	}
 	else {
@@ -1213,49 +1286,11 @@ enum GCDAsyncSocketConfig
 	[self setDelegate:newDelegate delegateQueue:newDelegateQueue synchronously:YES];
 }
 
-- (BOOL)autoDisconnectOnClosedReadStream
-{
-	// Note: YES means kAllowHalfDuplexConnection is OFF
-	
-	if (dispatch_get_current_queue() == socketQueue)
-	{
-		return ((config & kAllowHalfDuplexConnection) == 0);
-	}
-	else
-	{
-		__block BOOL result;
-		
-		dispatch_sync(socketQueue, ^{
-			result = ((config & kAllowHalfDuplexConnection) == 0);
-		});
-		
-		return result;
-	}
-}
-
-- (void)setAutoDisconnectOnClosedReadStream:(BOOL)flag
-{
-	// Note: YES means kAllowHalfDuplexConnection is OFF
-	
-	dispatch_block_t block = ^{
-		
-		if (flag)
-			config &= ~kAllowHalfDuplexConnection;
-		else
-			config |= kAllowHalfDuplexConnection;
-	};
-	
-	if (dispatch_get_current_queue() == socketQueue)
-		block();
-	else
-		dispatch_async(socketQueue, block);
-}
-
 - (BOOL)isIPv4Enabled
 {
 	// Note: YES means kIPv4Disabled is OFF
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return ((config & kIPv4Disabled) == 0);
 	}
@@ -1264,7 +1299,7 @@ enum GCDAsyncSocketConfig
 		__block BOOL result;
 		
 		dispatch_sync(socketQueue, ^{
-			result = ((config & kIPv4Disabled) == 0);
+			result = ((self->config & kIPv4Disabled) == 0);
 		});
 		
 		return result;
@@ -1278,12 +1313,12 @@ enum GCDAsyncSocketConfig
 	dispatch_block_t block = ^{
 		
 		if (flag)
-			config &= ~kIPv4Disabled;
+			self->config &= ~kIPv4Disabled;
 		else
-			config |= kIPv4Disabled;
+			self->config |= kIPv4Disabled;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_async(socketQueue, block);
@@ -1293,7 +1328,7 @@ enum GCDAsyncSocketConfig
 {
 	// Note: YES means kIPv6Disabled is OFF
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return ((config & kIPv6Disabled) == 0);
 	}
@@ -1302,7 +1337,7 @@ enum GCDAsyncSocketConfig
 		__block BOOL result;
 		
 		dispatch_sync(socketQueue, ^{
-			result = ((config & kIPv6Disabled) == 0);
+			result = ((self->config & kIPv6Disabled) == 0);
 		});
 		
 		return result;
@@ -1316,12 +1351,12 @@ enum GCDAsyncSocketConfig
 	dispatch_block_t block = ^{
 		
 		if (flag)
-			config &= ~kIPv6Disabled;
+			self->config &= ~kIPv6Disabled;
 		else
-			config |= kIPv6Disabled;
+			self->config |= kIPv6Disabled;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_async(socketQueue, block);
@@ -1331,7 +1366,7 @@ enum GCDAsyncSocketConfig
 {
 	// Note: YES means kPreferIPv6 is OFF
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return ((config & kPreferIPv6) == 0);
 	}
@@ -1340,7 +1375,7 @@ enum GCDAsyncSocketConfig
 		__block BOOL result;
 		
 		dispatch_sync(socketQueue, ^{
-			result = ((config & kPreferIPv6) == 0);
+			result = ((self->config & kPreferIPv6) == 0);
 		});
 		
 		return result;
@@ -1354,12 +1389,12 @@ enum GCDAsyncSocketConfig
 	dispatch_block_t block = ^{
 		
 		if (flag)
-			config &= ~kPreferIPv6;
+			self->config &= ~kPreferIPv6;
 		else
-			config |= kPreferIPv6;
+			self->config |= kPreferIPv6;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_async(socketQueue, block);
@@ -1371,10 +1406,10 @@ enum GCDAsyncSocketConfig
 	
 	dispatch_block_t block = ^{
 		
-		result = userData;
+		result = self->userData;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -1386,13 +1421,13 @@ enum GCDAsyncSocketConfig
 {
 	dispatch_block_t block = ^{
 		
-		if (userData != arbitraryUserData)
+		if (self->userData != arbitraryUserData)
 		{
-			userData = arbitraryUserData;
+			self->userData = arbitraryUserData;
 		}
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_async(socketQueue, block);
@@ -1490,7 +1525,7 @@ enum GCDAsyncSocketConfig
 	
 	dispatch_block_t block = ^{ @autoreleasepool {
 		
-		if (delegate == nil) // Must have delegate set
+		if (self->delegate == nil) // Must have delegate set
 		{
 			NSString *msg = @"Attempting to accept without a delegate. Set a delegate first.";
 			err = [self badConfigError:msg];
@@ -1498,7 +1533,7 @@ enum GCDAsyncSocketConfig
 			return_from_block;
 		}
 		
-		if (delegateQueue == NULL) // Must have delegate queue set
+		if (self->delegateQueue == NULL) // Must have delegate queue set
 		{
 			NSString *msg = @"Attempting to accept without a delegate queue. Set a delegate queue first.";
 			err = [self badConfigError:msg];
@@ -1506,8 +1541,8 @@ enum GCDAsyncSocketConfig
 			return_from_block;
 		}
 		
-		BOOL isIPv4Disabled = (config & kIPv4Disabled) ? YES : NO;
-		BOOL isIPv6Disabled = (config & kIPv6Disabled) ? YES : NO;
+		BOOL isIPv4Disabled = (self->config & kIPv4Disabled) ? YES : NO;
+		BOOL isIPv6Disabled = (self->config & kIPv6Disabled) ? YES : NO;
 		
 		if (isIPv4Disabled && isIPv6Disabled) // Must have IPv4 or IPv6 enabled
 		{
@@ -1526,8 +1561,8 @@ enum GCDAsyncSocketConfig
 		}
 		
 		// Clear queues (spurious read/write requests post disconnect)
-		[readQueue removeAllObjects];
-		[writeQueue removeAllObjects];
+		[self->readQueue removeAllObjects];
+		[self->writeQueue removeAllObjects];
 		
 		// Resolve interface from description
 		
@@ -1568,9 +1603,9 @@ enum GCDAsyncSocketConfig
 		if (enableIPv4)
 		{
 			LogVerbose(@"Creating IPv4 socket");
-			socket4FD = createSocket(AF_INET, interface4);
+			self->socket4FD = createSocket(AF_INET, interface4);
 			
-			if (socket4FD == SOCKET_NULL)
+			if (self->socket4FD == SOCKET_NULL)
 			{
 				return_from_block;
 			}
@@ -1589,14 +1624,14 @@ enum GCDAsyncSocketConfig
 				addr6->sin6_port = htons([self localPort4]);
 			}
 			
-			socket6FD = createSocket(AF_INET6, interface6);
+			self->socket6FD = createSocket(AF_INET6, interface6);
 			
-			if (socket6FD == SOCKET_NULL)
+			if (self->socket6FD == SOCKET_NULL)
 			{
-				if (socket4FD != SOCKET_NULL)
+				if (self->socket4FD != SOCKET_NULL)
 				{
 					LogVerbose(@"close(socket4FD)");
-					close(socket4FD);
+					close(self->socket4FD);
 				}
 				
 				return_from_block;
@@ -1607,12 +1642,12 @@ enum GCDAsyncSocketConfig
 		
 		if (enableIPv4)
 		{
-			accept4Source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, socket4FD, 0, socketQueue);
+			self->accept4Source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, self->socket4FD, 0, self->socketQueue);
 			
-			int socketFD = socket4FD;
-			dispatch_source_t acceptSource = accept4Source;
+			int socketFD = self->socket4FD;
+			dispatch_source_t acceptSource = self->accept4Source;
 			
-			dispatch_source_set_event_handler(accept4Source, ^{ @autoreleasepool {
+			dispatch_source_set_event_handler(self->accept4Source, ^{ @autoreleasepool {
 				
 				LogVerbose(@"event4Block");
 				
@@ -1624,7 +1659,7 @@ enum GCDAsyncSocketConfig
 				while ([self doAccept:socketFD] && (++i < numPendingConnections));
 			}});
 			
-			dispatch_source_set_cancel_handler(accept4Source, ^{
+			dispatch_source_set_cancel_handler(self->accept4Source, ^{
 				
 				#if NEEDS_DISPATCH_RETAIN_RELEASE
 				LogVerbose(@"dispatch_release(accept4Source)");
@@ -1636,17 +1671,17 @@ enum GCDAsyncSocketConfig
 			});
 			
 			LogVerbose(@"dispatch_resume(accept4Source)");
-			dispatch_resume(accept4Source);
+			dispatch_resume(self->accept4Source);
 		}
 		
 		if (enableIPv6)
 		{
-			accept6Source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, socket6FD, 0, socketQueue);
+			self->accept6Source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, self->socket6FD, 0, self->socketQueue);
 			
-			int socketFD = socket6FD;
-			dispatch_source_t acceptSource = accept6Source;
+			int socketFD = self->socket6FD;
+			dispatch_source_t acceptSource = self->accept6Source;
 			
-			dispatch_source_set_event_handler(accept6Source, ^{ @autoreleasepool {
+			dispatch_source_set_event_handler(self->accept6Source, ^{ @autoreleasepool {
 				
 				LogVerbose(@"event6Block");
 				
@@ -1658,7 +1693,7 @@ enum GCDAsyncSocketConfig
 				while ([self doAccept:socketFD] && (++i < numPendingConnections));
 			}});
 			
-			dispatch_source_set_cancel_handler(accept6Source, ^{
+			dispatch_source_set_cancel_handler(self->accept6Source, ^{
 				
 				#if NEEDS_DISPATCH_RETAIN_RELEASE
 				LogVerbose(@"dispatch_release(accept6Source)");
@@ -1670,15 +1705,15 @@ enum GCDAsyncSocketConfig
 			});
 			
 			LogVerbose(@"dispatch_resume(accept6Source)");
-			dispatch_resume(accept6Source);
+			dispatch_resume(self->accept6Source);
 		}
 		
-		flags |= kSocketStarted;
+		self->flags |= kSocketStarted;
 		
 		result = YES;
 	}};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -1772,7 +1807,7 @@ enum GCDAsyncSocketConfig
 			// Create GCDAsyncSocket instance for accepted socket
 			
 			GCDAsyncSocket *acceptedSocket = [[GCDAsyncSocket alloc] initWithDelegate:theDelegate
-			                                                            delegateQueue:delegateQueue
+			                                                            delegateQueue:self->delegateQueue
 			                                                              socketQueue:childSocketQueue];
 			
 			if (isIPv4)
@@ -1818,7 +1853,7 @@ enum GCDAsyncSocketConfig
 **/
 - (BOOL)preConnectWithInterface:(NSString *)interface error:(NSError **)errPtr
 {
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	if (delegate == nil) // Must have delegate set
 	{
@@ -1961,7 +1996,7 @@ enum GCDAsyncSocketConfig
 		// We've made it past all the checks.
 		// It's time to start the connection process.
 		
-		flags |= kSocketStarted;
+		self->flags |= kSocketStarted;
 		
 		LogVerbose(@"Dispatching DNS lookup...");
 		
@@ -1969,7 +2004,7 @@ enum GCDAsyncSocketConfig
 		// So we want to copy it now, within this block that will be executed synchronously.
 		// This way the asynchronous lookup block below doesn't have to worry about it changing.
 		
-		int aConnectIndex = connectIndex;
+		int aConnectIndex = self->connectIndex;
 		NSString *hostCpy = [host copy];
 		
 		dispatch_queue_t globalConcurrentQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
@@ -1983,7 +2018,7 @@ enum GCDAsyncSocketConfig
 		result = YES;
 	}};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -2056,8 +2091,8 @@ enum GCDAsyncSocketConfig
 			return_from_block;
 		}
 		
-		BOOL isIPv4Disabled = (config & kIPv4Disabled) ? YES : NO;
-		BOOL isIPv6Disabled = (config & kIPv6Disabled) ? YES : NO;
+		BOOL isIPv4Disabled = (self->config & kIPv4Disabled) ? YES : NO;
+		BOOL isIPv6Disabled = (self->config & kIPv6Disabled) ? YES : NO;
 		
 		if (isIPv4Disabled && (address4 != nil))
 		{
@@ -2090,14 +2125,14 @@ enum GCDAsyncSocketConfig
 			return_from_block;
 		}
 		
-		flags |= kSocketStarted;
+		self->flags |= kSocketStarted;
 		
 		[self startConnectTimeout:timeout];
 		
 		result = YES;
 	}};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -2210,7 +2245,7 @@ enum GCDAsyncSocketConfig
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	NSAssert(address4 || address6, @"Expected at least one valid address");
 	
 	if (aConnectIndex != connectIndex)
@@ -2264,7 +2299,7 @@ enum GCDAsyncSocketConfig
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	
 	if (aConnectIndex != connectIndex)
@@ -2284,7 +2319,7 @@ enum GCDAsyncSocketConfig
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	LogVerbose(@"IPv4: %@:%hu", [[self class] hostFromAddress:address4], [[self class] portFromAddress:address4]);
 	LogVerbose(@"IPv6: %@:%hu", [[self class] hostFromAddress:address6], [[self class] portFromAddress:address6]);
@@ -2372,7 +2407,7 @@ enum GCDAsyncSocketConfig
 		int result = connect(socketFD, (const struct sockaddr *)[address bytes], (socklen_t)[address length]);
 		if (result == 0)
 		{
-			dispatch_async(socketQueue, ^{ @autoreleasepool {
+			dispatch_async(self->socketQueue, ^{ @autoreleasepool {
 				
 				[self didConnect:aConnectIndex];
 			}});
@@ -2381,7 +2416,7 @@ enum GCDAsyncSocketConfig
 		{
 			NSError *error = [self errnoErrorWithReason:@"Error in connect() function"];
 			
-			dispatch_async(socketQueue, ^{ @autoreleasepool {
+			dispatch_async(self->socketQueue, ^{ @autoreleasepool {
 				
 				[self didNotConnect:aConnectIndex error:error];
 			}});
@@ -2397,7 +2432,7 @@ enum GCDAsyncSocketConfig
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	
 	if (aConnectIndex != connectIndex)
@@ -2483,7 +2518,7 @@ enum GCDAsyncSocketConfig
 			
 			[theDelegate socket:self didConnectToHost:host port:port];
 			
-			dispatch_async(socketQueue, ^{ @autoreleasepool {
+			dispatch_async(self->socketQueue, ^{ @autoreleasepool {
 				
 				SetupStreamsPart2();
 			}});
@@ -2524,7 +2559,7 @@ enum GCDAsyncSocketConfig
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	
 	if (aConnectIndex != connectIndex)
@@ -2558,7 +2593,7 @@ enum GCDAsyncSocketConfig
 		});
 		#endif
 		
-		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, (timeout * NSEC_PER_SEC));
+		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, ((int64_t)timeout * NSEC_PER_SEC));
 		dispatch_source_set_timer(connectTimer, tt, DISPATCH_TIME_FOREVER, 0);
 		
 		dispatch_resume(connectTimer);
@@ -2607,7 +2642,7 @@ enum GCDAsyncSocketConfig
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	
 	[self endConnectTimeout];
@@ -2655,8 +2690,9 @@ enum GCDAsyncSocketConfig
 			
 			SSLClose(sslContext);
 			
-			#if !TARGET_OS_IPHONE
-			// SSLDisposeContext doesn't exist in iOS for some odd reason.
+			#if TARGET_OS_IPHONE
+			CFRelease(sslContext);
+			#else
 			SSLDisposeContext(sslContext);
 			#endif
 			
@@ -2762,7 +2798,7 @@ enum GCDAsyncSocketConfig
 {
 	dispatch_block_t block = ^{ @autoreleasepool {
 		
-		if (flags & kSocketStarted)
+		if (self->flags & kSocketStarted)
 		{
 			[self closeWithError:nil];
 		}
@@ -2770,7 +2806,7 @@ enum GCDAsyncSocketConfig
 	
 	// Synchronous disconnection, as documented in the header file
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -2780,9 +2816,9 @@ enum GCDAsyncSocketConfig
 {
 	dispatch_async(socketQueue, ^{ @autoreleasepool {
 		
-		if (flags & kSocketStarted)
+		if (self->flags & kSocketStarted)
 		{
-			flags |= (kForbidReadsWrites | kDisconnectAfterReads);
+			self->flags |= (kForbidReadsWrites | kDisconnectAfterReads);
 			[self maybeClose];
 		}
 	}});
@@ -2792,9 +2828,9 @@ enum GCDAsyncSocketConfig
 {
 	dispatch_async(socketQueue, ^{ @autoreleasepool {
 		
-		if (flags & kSocketStarted)
+		if (self->flags & kSocketStarted)
 		{
-			flags |= (kForbidReadsWrites | kDisconnectAfterWrites);
+			self->flags |= (kForbidReadsWrites | kDisconnectAfterWrites);
 			[self maybeClose];
 		}
 	}});
@@ -2804,9 +2840,9 @@ enum GCDAsyncSocketConfig
 {
 	dispatch_async(socketQueue, ^{ @autoreleasepool {
 		
-		if (flags & kSocketStarted)
+		if (self->flags & kSocketStarted)
 		{
-			flags |= (kForbidReadsWrites | kDisconnectAfterReads | kDisconnectAfterWrites);
+			self->flags |= (kForbidReadsWrites | kDisconnectAfterReads | kDisconnectAfterWrites);
 			[self maybeClose];
 		}
 	}});
@@ -2819,7 +2855,7 @@ enum GCDAsyncSocketConfig
 **/
 - (void)maybeClose
 {
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	BOOL shouldClose = NO;
 	
@@ -2981,10 +3017,10 @@ enum GCDAsyncSocketConfig
 	__block BOOL result = NO;
 	
 	dispatch_block_t block = ^{
-		result = (flags & kSocketStarted) ? NO : YES;
+		result = (self->flags & kSocketStarted) ? NO : YES;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -2997,10 +3033,10 @@ enum GCDAsyncSocketConfig
 	__block BOOL result = NO;
 	
 	dispatch_block_t block = ^{
-		result = (flags & kConnected) ? YES : NO;
+		result = (self->flags & kConnected) ? YES : NO;
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -3010,7 +3046,7 @@ enum GCDAsyncSocketConfig
 
 - (NSString *)connectedHost
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		if (socket4FD != SOCKET_NULL)
 			return [self connectedHostFromSocket4:socket4FD];
@@ -3025,10 +3061,10 @@ enum GCDAsyncSocketConfig
 		
 		dispatch_sync(socketQueue, ^{ @autoreleasepool {
 			
-			if (socket4FD != SOCKET_NULL)
-				result = [self connectedHostFromSocket4:socket4FD];
-			else if (socket6FD != SOCKET_NULL)
-				result = [self connectedHostFromSocket6:socket6FD];
+			if (self->socket4FD != SOCKET_NULL)
+				result = [self connectedHostFromSocket4:self->socket4FD];
+			else if (self->socket6FD != SOCKET_NULL)
+				result = [self connectedHostFromSocket6:self->socket6FD];
 		}});
 		
 		return result;
@@ -3037,7 +3073,7 @@ enum GCDAsyncSocketConfig
 
 - (uint16_t)connectedPort
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		if (socket4FD != SOCKET_NULL)
 			return [self connectedPortFromSocket4:socket4FD];
@@ -3053,10 +3089,10 @@ enum GCDAsyncSocketConfig
 		dispatch_sync(socketQueue, ^{
 			// No need for autorelease pool
 			
-			if (socket4FD != SOCKET_NULL)
-				result = [self connectedPortFromSocket4:socket4FD];
-			else if (socket6FD != SOCKET_NULL)
-				result = [self connectedPortFromSocket6:socket6FD];
+			if (self->socket4FD != SOCKET_NULL)
+				result = [self connectedPortFromSocket4:self->socket4FD];
+			else if (self->socket6FD != SOCKET_NULL)
+				result = [self connectedPortFromSocket6:self->socket6FD];
 		});
 		
 		return result;
@@ -3065,7 +3101,7 @@ enum GCDAsyncSocketConfig
 
 - (NSString *)localHost
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		if (socket4FD != SOCKET_NULL)
 			return [self localHostFromSocket4:socket4FD];
@@ -3080,10 +3116,10 @@ enum GCDAsyncSocketConfig
 		
 		dispatch_sync(socketQueue, ^{ @autoreleasepool {
 			
-			if (socket4FD != SOCKET_NULL)
-				result = [self localHostFromSocket4:socket4FD];
-			else if (socket6FD != SOCKET_NULL)
-				result = [self localHostFromSocket6:socket6FD];
+			if (self->socket4FD != SOCKET_NULL)
+				result = [self localHostFromSocket4:self->socket4FD];
+			else if (self->socket6FD != SOCKET_NULL)
+				result = [self localHostFromSocket6:self->socket6FD];
 		}});
 		
 		return result;
@@ -3092,7 +3128,7 @@ enum GCDAsyncSocketConfig
 
 - (uint16_t)localPort
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		if (socket4FD != SOCKET_NULL)
 			return [self localPortFromSocket4:socket4FD];
@@ -3108,10 +3144,10 @@ enum GCDAsyncSocketConfig
 		dispatch_sync(socketQueue, ^{
 			// No need for autorelease pool
 			
-			if (socket4FD != SOCKET_NULL)
-				result = [self localPortFromSocket4:socket4FD];
-			else if (socket6FD != SOCKET_NULL)
-				result = [self localPortFromSocket6:socket6FD];
+			if (self->socket4FD != SOCKET_NULL)
+				result = [self localPortFromSocket4:self->socket4FD];
+			else if (self->socket6FD != SOCKET_NULL)
+				result = [self localPortFromSocket6:self->socket6FD];
 		});
 		
 		return result;
@@ -3283,30 +3319,30 @@ enum GCDAsyncSocketConfig
 	__block NSData *result = nil;
 	
 	dispatch_block_t block = ^{
-		if (socket4FD != SOCKET_NULL)
+		if (self->socket4FD != SOCKET_NULL)
 		{
 			struct sockaddr_in sockaddr4;
 			socklen_t sockaddr4len = sizeof(sockaddr4);
 			
-			if (getpeername(socket4FD, (struct sockaddr *)&sockaddr4, &sockaddr4len) == 0)
+			if (getpeername(self->socket4FD, (struct sockaddr *)&sockaddr4, &sockaddr4len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr4 length:sockaddr4len];
+				result = [NSData dataWithBytes:&sockaddr4 length:sockaddr4len];
 			}
 		}
 		
-		if (socket6FD != SOCKET_NULL)
+		if (self->socket6FD != SOCKET_NULL)
 		{
 			struct sockaddr_in6 sockaddr6;
 			socklen_t sockaddr6len = sizeof(sockaddr6);
 			
-			if (getpeername(socket6FD, (struct sockaddr *)&sockaddr6, &sockaddr6len) == 0)
+			if (getpeername(self->socket6FD, (struct sockaddr *)&sockaddr6, &sockaddr6len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr6 length:sockaddr6len];
+				result = [NSData dataWithBytes:&sockaddr6 length:sockaddr6len];
 			}
 		}
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -3319,30 +3355,30 @@ enum GCDAsyncSocketConfig
 	__block NSData *result = nil;
 	
 	dispatch_block_t block = ^{
-		if (socket4FD != SOCKET_NULL)
+		if (self->socket4FD != SOCKET_NULL)
 		{
 			struct sockaddr_in sockaddr4;
 			socklen_t sockaddr4len = sizeof(sockaddr4);
 			
-			if (getsockname(socket4FD, (struct sockaddr *)&sockaddr4, &sockaddr4len) == 0)
+			if (getsockname(self->socket4FD, (struct sockaddr *)&sockaddr4, &sockaddr4len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr4 length:sockaddr4len];
+				result = [NSData dataWithBytes:&sockaddr4 length:sockaddr4len];
 			}
 		}
 		
-		if (socket6FD != SOCKET_NULL)
+		if (self->socket6FD != SOCKET_NULL)
 		{
 			struct sockaddr_in6 sockaddr6;
 			socklen_t sockaddr6len = sizeof(sockaddr6);
 			
-			if (getsockname(socket6FD, (struct sockaddr *)&sockaddr6, &sockaddr6len) == 0)
+			if (getsockname(self->socket6FD, (struct sockaddr *)&sockaddr6, &sockaddr6len) == 0)
 			{
-				result = [[NSData alloc] initWithBytes:&sockaddr6 length:sockaddr6len];
+				result = [NSData dataWithBytes:&sockaddr6 length:sockaddr6len];
 			}
 		}
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -3352,7 +3388,7 @@ enum GCDAsyncSocketConfig
 
 - (BOOL)isIPv4
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return (socket4FD != SOCKET_NULL);
 	}
@@ -3361,7 +3397,7 @@ enum GCDAsyncSocketConfig
 		__block BOOL result = NO;
 		
 		dispatch_sync(socketQueue, ^{
-			result = (socket4FD != SOCKET_NULL);
+			result = (self->socket4FD != SOCKET_NULL);
 		});
 		
 		return result;
@@ -3370,7 +3406,7 @@ enum GCDAsyncSocketConfig
 
 - (BOOL)isIPv6
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return (socket6FD != SOCKET_NULL);
 	}
@@ -3379,7 +3415,7 @@ enum GCDAsyncSocketConfig
 		__block BOOL result = NO;
 		
 		dispatch_sync(socketQueue, ^{
-			result = (socket6FD != SOCKET_NULL);
+			result = (self->socket6FD != SOCKET_NULL);
 		});
 		
 		return result;
@@ -3388,7 +3424,7 @@ enum GCDAsyncSocketConfig
 
 - (BOOL)isSecure
 {
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		return (flags & kSocketSecure) ? YES : NO;
 	}
@@ -3397,7 +3433,7 @@ enum GCDAsyncSocketConfig
 		__block BOOL result;
 		
 		dispatch_sync(socketQueue, ^{
-			result = (flags & kSocketSecure) ? YES : NO;
+			result = (self->flags & kSocketSecure) ? YES : NO;
 		});
 		
 		return result;
@@ -3587,10 +3623,10 @@ enum GCDAsyncSocketConfig
 		
 		LogVerbose(@"readEventBlock");
 		
-		socketFDBytesAvailable = dispatch_source_get_data(readSource);
+		self->socketFDBytesAvailable = dispatch_source_get_data(self->readSource);
 		LogVerbose(@"socketFDBytesAvailable: %lu", socketFDBytesAvailable);
 		
-		if (socketFDBytesAvailable > 0)
+		if (self->socketFDBytesAvailable > 0)
 			[self doReadData];
 		else
 			[self doReadEOF];
@@ -3600,7 +3636,7 @@ enum GCDAsyncSocketConfig
 		
 		LogVerbose(@"writeEventBlock");
 		
-		flags |= kSocketCanAcceptBytes;
+		self->flags |= kSocketCanAcceptBytes;
 		[self doWriteData];
 	}});
 	
@@ -3770,9 +3806,9 @@ enum GCDAsyncSocketConfig
 		
 		LogTrace();
 		
-		if ((flags & kSocketStarted) && !(flags & kForbidReadsWrites))
+		if ((self->flags & kSocketStarted) && !(self->flags & kForbidReadsWrites))
 		{
-			[readQueue addObject:packet];
+			[self->readQueue addObject:packet];
 			[self maybeDequeueRead];
 		}
 	}});
@@ -3813,9 +3849,9 @@ enum GCDAsyncSocketConfig
 		
 		LogTrace();
 		
-		if ((flags & kSocketStarted) && !(flags & kForbidReadsWrites))
+		if ((self->flags & kSocketStarted) && !(self->flags & kForbidReadsWrites))
 		{
-			[readQueue addObject:packet];
+			[self->readQueue addObject:packet];
 			[self maybeDequeueRead];
 		}
 	}});
@@ -3875,9 +3911,9 @@ enum GCDAsyncSocketConfig
 		
 		LogTrace();
 		
-		if ((flags & kSocketStarted) && !(flags & kForbidReadsWrites))
+		if ((self->flags & kSocketStarted) && !(self->flags & kForbidReadsWrites))
 		{
-			[readQueue addObject:packet];
+			[self->readQueue addObject:packet];
 			[self maybeDequeueRead];
 		}
 	}});
@@ -3892,7 +3928,7 @@ enum GCDAsyncSocketConfig
 	
 	dispatch_block_t block = ^{
 		
-		if (!currentRead || ![currentRead isKindOfClass:[GCDAsyncReadPacket class]])
+		if (!self->currentRead || ![self->currentRead isKindOfClass:[GCDAsyncReadPacket class]])
 		{
 			// We're not reading anything right now.
 			
@@ -3908,10 +3944,10 @@ enum GCDAsyncSocketConfig
 			// If we're reading to data, we of course have no idea when the data will arrive.
 			// If we're reading to timeout, then we have no idea when the next chunk of data will arrive.
 			
-			NSUInteger done = currentRead->bytesDone;
-			NSUInteger total = currentRead->readLength;
+			NSUInteger done = self->currentRead->bytesDone;
+			NSUInteger total = self->currentRead->readLength;
 			
-			if (tagPtr != NULL)   *tagPtr = currentRead->tag;
+			if (tagPtr != NULL)   *tagPtr = self->currentRead->tag;
 			if (donePtr != NULL)  *donePtr = done;
 			if (totalPtr != NULL) *totalPtr = total;
 			
@@ -3922,7 +3958,7 @@ enum GCDAsyncSocketConfig
 		}
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -3943,7 +3979,7 @@ enum GCDAsyncSocketConfig
 - (void)maybeDequeueRead
 {
 	LogTrace();
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	// If we're not currently processing a read AND we have an available read stream
 	if ((currentRead == nil) && (flags & kConnected))
@@ -4076,10 +4112,10 @@ enum GCDAsyncSocketConfig
 		// from the encrypted bytes in the sslPreBuffer.
 		// However, we do know this is an upper bound on the estimation.
 		
-		estimatedBytesAvailable = socketFDBytesAvailable + [sslPreBuffer availableBytes];
+		estimatedBytesAvailable = self->socketFDBytesAvailable + [self->sslPreBuffer availableBytes];
 		
 		size_t sslInternalBufSize = 0;
-		SSLGetBufferedReadSize(sslContext, &sslInternalBufSize);
+		SSLGetBufferedReadSize(self->sslContext, &sslInternalBufSize);
 		
 		estimatedBytesAvailable += sslInternalBufSize;
 	};
@@ -4182,18 +4218,21 @@ enum GCDAsyncSocketConfig
 		return;
 	}
 	
-	BOOL hasBytesAvailable;
-	unsigned long estimatedBytesAvailable;
+	BOOL hasBytesAvailable = NO;
+	unsigned long estimatedBytesAvailable = 0;
 	
 	if ([self usingCFStreamForTLS])
 	{
-        hasBytesAvailable = NO;
-		estimatedBytesAvailable = 0;
 		#if TARGET_OS_IPHONE
+		
 		// Relegated to using CFStream... :( Boo! Give us a full SecureTransport stack Apple!
-
+		
+		estimatedBytesAvailable = 0;
 		if ((flags & kSecureSocketHasBytesAvailable) && CFReadStreamHasBytesAvailable(readStream))
 			hasBytesAvailable = YES;
+		else
+			hasBytesAvailable = NO;
+		
 		#endif
 	}
 	else
@@ -5047,7 +5086,7 @@ enum GCDAsyncSocketConfig
 		});
 		#endif
 		
-		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, (timeout * NSEC_PER_SEC));
+		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, ((int64_t)timeout * NSEC_PER_SEC));
 		
 		dispatch_source_set_timer(readTimer, tt, DISPATCH_TIME_FOREVER, 0);
 		dispatch_resume(readTimer);
@@ -5076,7 +5115,7 @@ enum GCDAsyncSocketConfig
 			                                                             elapsed:theRead->timeout
 			                                                           bytesDone:theRead->bytesDone];
 			
-			dispatch_async(socketQueue, ^{ @autoreleasepool {
+			dispatch_async(self->socketQueue, ^{ @autoreleasepool {
 				
 				[self doReadTimeoutWithExtension:timeoutExtension];
 			}});
@@ -5097,7 +5136,7 @@ enum GCDAsyncSocketConfig
 			currentRead->timeout += timeoutExtension;
 			
 			// Reschedule the timer
-			dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, (timeoutExtension * NSEC_PER_SEC));
+			dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, ((int64_t)timeoutExtension * NSEC_PER_SEC));
 			dispatch_source_set_timer(readTimer, tt, DISPATCH_TIME_FOREVER, 0);
 			
 			// Unpause reads, and continue
@@ -5125,9 +5164,9 @@ enum GCDAsyncSocketConfig
 		
 		LogTrace();
 		
-		if ((flags & kSocketStarted) && !(flags & kForbidReadsWrites))
+		if ((self->flags & kSocketStarted) && !(self->flags & kForbidReadsWrites))
 		{
-			[writeQueue addObject:packet];
+			[self->writeQueue addObject:packet];
 			[self maybeDequeueWrite];
 		}
 	}});
@@ -5142,7 +5181,7 @@ enum GCDAsyncSocketConfig
 	
 	dispatch_block_t block = ^{
 		
-		if (!currentWrite || ![currentWrite isKindOfClass:[GCDAsyncWritePacket class]])
+		if (!self->currentWrite || ![self->currentWrite isKindOfClass:[GCDAsyncWritePacket class]])
 		{
 			// We're not writing anything right now.
 			
@@ -5154,10 +5193,10 @@ enum GCDAsyncSocketConfig
 		}
 		else
 		{
-			NSUInteger done = currentWrite->bytesDone;
-			NSUInteger total = [currentWrite->buffer length];
+			NSUInteger done = self->currentWrite->bytesDone;
+			NSUInteger total = [self->currentWrite->buffer length];
 			
-			if (tagPtr != NULL)   *tagPtr = currentWrite->tag;
+			if (tagPtr != NULL)   *tagPtr = self->currentWrite->tag;
 			if (donePtr != NULL)  *donePtr = done;
 			if (totalPtr != NULL) *totalPtr = total;
 			
@@ -5165,7 +5204,7 @@ enum GCDAsyncSocketConfig
 		}
 	};
 	
-	if (dispatch_get_current_queue() == socketQueue)
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 		block();
 	else
 		dispatch_sync(socketQueue, block);
@@ -5186,7 +5225,7 @@ enum GCDAsyncSocketConfig
 - (void)maybeDequeueWrite
 {
 	LogTrace();
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	
 	// If we're not currently processing a write AND we have an available write stream
@@ -5345,7 +5384,7 @@ enum GCDAsyncSocketConfig
 			}
 		
 			CFIndex result = CFWriteStreamWrite(writeStream, buffer, (CFIndex)bytesToWrite);
-			LogVerbose(@"CFWriteStreamWrite(%lu) = %li", bytesToWrite, result);
+			LogVerbose(@"CFWriteStreamWrite(%lu) = %li", (unsigned long)bytesToWrite, result);
 		
 			if (result < 0)
 			{
@@ -5465,7 +5504,7 @@ enum GCDAsyncSocketConfig
 				BOOL keepLooping = YES;
 				while (keepLooping)
 				{
-					size_t sslBytesToWrite = MIN(bytesRemaining, 32768);
+					size_t sslBytesToWrite = MIN(bytesRemaining, 32768ul);
 					size_t sslBytesWritten = 0;
 					
 					result = SSLWrite(sslContext, buffer, sslBytesToWrite, &sslBytesWritten);
@@ -5565,7 +5604,7 @@ enum GCDAsyncSocketConfig
 	{
 		// Update total amount read for the current write
 		currentWrite->bytesDone += bytesWritten;
-		LogVerbose(@"currentWrite->bytesDone = %lu", currentWrite->bytesDone);
+		LogVerbose(@"currentWrite->bytesDone = %lu", (unsigned long)currentWrite->bytesDone);
 		
 		// Is packet done?
 		done = (currentWrite->bytesDone == [currentWrite->buffer length]);
@@ -5675,7 +5714,7 @@ enum GCDAsyncSocketConfig
 		});
 		#endif
 		
-		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, (timeout * NSEC_PER_SEC));
+		dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, ((int64_t)timeout * NSEC_PER_SEC));
 		
 		dispatch_source_set_timer(writeTimer, tt, DISPATCH_TIME_FOREVER, 0);
 		dispatch_resume(writeTimer);
@@ -5704,7 +5743,7 @@ enum GCDAsyncSocketConfig
 			                                                              elapsed:theWrite->timeout
 			                                                            bytesDone:theWrite->bytesDone];
 			
-			dispatch_async(socketQueue, ^{ @autoreleasepool {
+			dispatch_async(self->socketQueue, ^{ @autoreleasepool {
 				
 				[self doWriteTimeoutWithExtension:timeoutExtension];
 			}});
@@ -5725,7 +5764,7 @@ enum GCDAsyncSocketConfig
 			currentWrite->timeout += timeoutExtension;
 			
 			// Reschedule the timer
-			dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, (timeoutExtension * NSEC_PER_SEC));
+			dispatch_time_t tt = dispatch_time(DISPATCH_TIME_NOW, ((int64_t)timeoutExtension * NSEC_PER_SEC));
 			dispatch_source_set_timer(writeTimer, tt, DISPATCH_TIME_FOREVER, 0);
 			
 			// Unpause writes, and continue
@@ -5764,12 +5803,12 @@ enum GCDAsyncSocketConfig
 	
 	dispatch_async(socketQueue, ^{ @autoreleasepool {
 		
-		if ((flags & kSocketStarted) && !(flags & kQueuedTLS) && !(flags & kForbidReadsWrites))
+		if ((self->flags & kSocketStarted) && !(self->flags & kQueuedTLS) && !(self->flags & kForbidReadsWrites))
 		{
-			[readQueue addObject:packet];
-			[writeQueue addObject:packet];
+			[self->readQueue addObject:packet];
+			[self->writeQueue addObject:packet];
 			
-			flags |= kQueuedTLS;
+			self->flags |= kQueuedTLS;
 			
 			[self maybeDequeueRead];
 			[self maybeDequeueWrite];
@@ -6057,7 +6096,7 @@ static OSStatus SSLReadFunction(SSLConnectionRef connection, void *data, size_t 
 {
 	GCDAsyncSocket *asyncSocket = (__bridge GCDAsyncSocket *)connection;
 	
-	NSCAssert(dispatch_get_current_queue() == asyncSocket->socketQueue, @"What the deuce?");
+	NSCAssert(dispatch_get_specific(asyncSocket->IsOnSocketQueueOrTargetQueueKey), @"What the deuce?");
 	
 	return [asyncSocket sslReadWithBuffer:data length:dataLength];
 }
@@ -6066,7 +6105,7 @@ static OSStatus SSLWriteFunction(SSLConnectionRef connection, const void *data, 
 {
 	GCDAsyncSocket *asyncSocket = (__bridge GCDAsyncSocket *)connection;
 	
-	NSCAssert(dispatch_get_current_queue() == asyncSocket->socketQueue, @"What the deuce?");
+	NSCAssert(dispatch_get_specific(asyncSocket->IsOnSocketQueueOrTargetQueueKey), @"What the deuce?");
 	
 	return [asyncSocket sslWriteWithBuffer:data length:dataLength];
 }
@@ -6834,7 +6873,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	
 	
 	if (readStream || writeStream)
@@ -6896,7 +6935,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 {
 	LogVerbose(@"%@ %@", THIS_METHOD, (includeReadWrite ? @"YES" : @"NO"));
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	NSAssert((readStream != NULL && writeStream != NULL), @"Read/Write stream is null");
 	
 	streamContext.version = 0;
@@ -6930,7 +6969,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	NSAssert((readStream != NULL && writeStream != NULL), @"Read/Write stream is null");
 	
 	if (!(flags & kAddedStreamsToRunLoop))
@@ -6953,7 +6992,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	NSAssert((readStream != NULL && writeStream != NULL), @"Read/Write stream is null");
 	
 	if (flags & kAddedStreamsToRunLoop)
@@ -6973,7 +7012,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 {
 	LogTrace();
 	
-	NSAssert(dispatch_get_current_queue() == socketQueue, @"Must be dispatched on socketQueue");
+	NSAssert(dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey), @"Must be dispatched on socketQueue");
 	NSAssert((readStream != NULL && writeStream != NULL), @"Read/Write stream is null");
 	
 	CFStreamStatus readStatus = CFReadStreamGetStatus(readStream);
@@ -7000,14 +7039,85 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 
 #pragma mark Advanced
 
-- (void)performBlock:(dispatch_block_t)block
+/**
+ * See header file for big discussion of this method.
+**/
+- (BOOL)autoDisconnectOnClosedReadStream
 {
-	dispatch_sync(socketQueue, block);
+	// Note: YES means kAllowHalfDuplexConnection is OFF
+	
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
+	{
+		return ((config & kAllowHalfDuplexConnection) == 0);
+	}
+	else
+	{
+		__block BOOL result;
+		
+		dispatch_sync(socketQueue, ^{
+			result = ((self->config & kAllowHalfDuplexConnection) == 0);
+		});
+		
+		return result;
+	}
 }
 
+/**
+ * See header file for big discussion of this method.
+**/
+- (void)setAutoDisconnectOnClosedReadStream:(BOOL)flag
+{
+	// Note: YES means kAllowHalfDuplexConnection is OFF
+	
+	dispatch_block_t block = ^{
+		
+		if (flag)
+			self->config &= ~kAllowHalfDuplexConnection;
+		else
+			self->config |= kAllowHalfDuplexConnection;
+	};
+	
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
+		block();
+	else
+		dispatch_async(socketQueue, block);
+}
+
+
+/**
+ * See header file for big discussion of this method.
+**/
+- (void)markSocketQueueTargetQueue:(dispatch_queue_t)socketNewTargetQueue
+{
+	void *nonNullUnusedPointer = (__bridge void *)self;
+	dispatch_queue_set_specific(socketNewTargetQueue, IsOnSocketQueueOrTargetQueueKey, nonNullUnusedPointer, NULL);
+}
+
+/**
+ * See header file for big discussion of this method.
+**/
+- (void)unmarkSocketQueueTargetQueue:(dispatch_queue_t)socketOldTargetQueue
+{
+	dispatch_queue_set_specific(socketOldTargetQueue, IsOnSocketQueueOrTargetQueueKey, NULL, NULL);
+}
+
+/**
+ * See header file for big discussion of this method.
+**/
+- (void)performBlock:(dispatch_block_t)block
+{
+	if (dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
+		block();
+	else
+		dispatch_sync(socketQueue, block);
+}
+
+/**
+ * Questions? Have you read the header file?
+**/
 - (int)socketFD
 {
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return SOCKET_NULL;
@@ -7019,9 +7129,12 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 		return socket6FD;
 }
 
+/**
+ * Questions? Have you read the header file?
+**/
 - (int)socket4FD
 {
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return SOCKET_NULL;
@@ -7030,9 +7143,12 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return socket4FD;
 }
 
+/**
+ * Questions? Have you read the header file?
+**/
 - (int)socket6FD
 {
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return SOCKET_NULL;
@@ -7043,9 +7159,12 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 
 #if TARGET_OS_IPHONE
 
+/**
+ * Questions? Have you read the header file?
+**/
 - (CFReadStreamRef)readStream
 {
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return NULL;
@@ -7057,9 +7176,12 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return readStream;
 }
 
+/**
+ * Questions? Have you read the header file?
+**/
 - (CFWriteStreamRef)writeStream
 {
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return NULL;
@@ -7102,11 +7224,14 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return YES;
 }
 
+/**
+ * Questions? Have you read the header file?
+**/
 - (BOOL)enableBackgroundingOnSocket
 {
 	LogTrace();
 	
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return NO;
@@ -7123,7 +7248,7 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	
 	LogTrace();
 	
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return NO;
@@ -7132,11 +7257,13 @@ static void CFWriteStreamCallback (CFWriteStreamRef stream, CFStreamEventType ty
 	return [self enableBackgroundingOnSocketWithCaveat:YES];
 }
 
-#else
+#endif
+
+#if SECURE_TRANSPORT_MAYBE_AVAILABLE
 
 - (SSLContextRef)sslContext
 {
-	if (dispatch_get_current_queue() != socketQueue)
+	if (!dispatch_get_specific(IsOnSocketQueueOrTargetQueueKey))
 	{
 		LogWarn(@"%@ - Method only available from within the context of a performBlock: invocation", THIS_METHOD);
 		return NULL;

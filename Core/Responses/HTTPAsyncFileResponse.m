@@ -9,32 +9,6 @@
 #warning This file must be compiled with ARC. Use -fobjc-arc flag (or convert project to ARC).
 #endif
 
-/**
- * Does ARC support support GCD objects?
- * It does if the minimum deployment target is iOS 6+ or Mac OS X 8+
-**/
-#if TARGET_OS_IPHONE
-
-  // Compiling for iOS
-
-  #if __IPHONE_OS_VERSION_MIN_REQUIRED >= 60000 // iOS 6.0 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else                                         // iOS 5.X or earlier
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1
-  #endif
-
-#else
-
-  // Compiling for Mac OS X
-
-  #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1080     // Mac OS X 10.8 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1     // Mac OS X 10.7 or earlier
-  #endif
-
-#endif
-
 // Log levels : off, error, warn, info, verbose
 // Other flags: trace
 static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
@@ -179,16 +153,16 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	
 	dispatch_source_set_event_handler(readSource, ^{
 		
-		HTTPLogTrace2(@"%@: eventBlock - fd[%i]", THIS_FILE, fileFD);
+		HTTPLogTrace2(@"%@: eventBlock - fd[%i]", THIS_FILE, self->fileFD);
 		
 		// Determine how much data we should read.
 		// 
 		// It is OK if we ask to read more bytes than exist in the file.
 		// It is NOT OK to over-allocate the buffer.
 		
-		unsigned long long _bytesAvailableOnFD = dispatch_source_get_data(readSource);
+		unsigned long long _bytesAvailableOnFD = dispatch_source_get_data(self->readSource);
 		
-		UInt64 _bytesLeftInFile = fileLength - readOffset;
+		UInt64 _bytesLeftInFile = self->fileLength - self->readOffset;
 		
 		NSUInteger bytesAvailableOnFD;
 		NSUInteger bytesLeftInFile;
@@ -196,7 +170,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		bytesAvailableOnFD = (_bytesAvailableOnFD > NSUIntegerMax) ? NSUIntegerMax : (NSUInteger)_bytesAvailableOnFD;
 		bytesLeftInFile    = (_bytesLeftInFile    > NSUIntegerMax) ? NSUIntegerMax : (NSUInteger)_bytesLeftInFile;
 		
-		NSUInteger bytesLeftInRequest = readRequestLength - readBufferOffset;
+		NSUInteger bytesLeftInRequest = self->readRequestLength - self->readBufferOffset;
 		
 		NSUInteger bytesLeft = MIN(bytesLeftInRequest, bytesLeftInFile);
 		
@@ -205,12 +179,12 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		// Make sure buffer is big enough for read request.
 		// Do not over-allocate.
 		
-		if (readBuffer == NULL || bytesToRead > (readBufferSize - readBufferOffset))
+		if (self->readBuffer == NULL || bytesToRead > (self->readBufferSize - self->readBufferOffset))
 		{
-			readBufferSize = bytesToRead;
-			readBuffer = reallocf(readBuffer, (size_t)bytesToRead);
+			self->readBufferSize = bytesToRead;
+			self->readBuffer = reallocf(self->readBuffer, (size_t)bytesToRead);
 			
-			if (readBuffer == NULL)
+			if (self->readBuffer == NULL)
 			{
 				HTTPLogError(@"%@[%p]: Unable to allocate buffer", THIS_FILE, self);
 				
@@ -225,19 +199,19 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		
 		HTTPLogVerbose(@"%@[%p]: Attempting to read %lu bytes from file", THIS_FILE, self, (unsigned long)bytesToRead);
 		
-		ssize_t result = read(fileFD, readBuffer + readBufferOffset, (size_t)bytesToRead);
+		ssize_t result = read(self->fileFD, self->readBuffer + self->readBufferOffset, (size_t)bytesToRead);
 		
 		// Check the results
 		if (result < 0)
 		{
-			HTTPLogError(@"%@: Error(%i) reading file(%@)", THIS_FILE, errno, filePath);
+			HTTPLogError(@"%@: Error(%i) reading file(%@)", THIS_FILE, errno, self->filePath);
 			
 			[self pauseReadSource];
 			[self abort];
 		}
 		else if (result == 0)
 		{
-			HTTPLogError(@"%@: Read EOF on file(%@)", THIS_FILE, filePath);
+			HTTPLogError(@"%@: Read EOF on file(%@)", THIS_FILE, self->filePath);
 			
 			[self pauseReadSource];
 			[self abort];
@@ -246,8 +220,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		{
 			HTTPLogVerbose(@"%@[%p]: Read %lu bytes from file", THIS_FILE, self, (unsigned long)result);
 			
-			readOffset += result;
-			readBufferOffset += result;
+			self->readOffset += result;
+			self->readBufferOffset += result;
 			
 			[self pauseReadSource];
 			[self processReadBuffer];
@@ -256,7 +230,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	});
 	
 	int theFileFD = fileFD;
-	#if NEEDS_DISPATCH_RETAIN_RELEASE
+	#if !OS_OBJECT_USE_OBJC
 	dispatch_source_t theReadSource = readSource;
 	#endif
 	
@@ -268,7 +242,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		
 		HTTPLogTrace2(@"%@: cancelBlock - Close fd[%i]", THIS_FILE, theFileFD);
 		
-		#if NEEDS_DISPATCH_RETAIN_RELEASE
+		#if !OS_OBJECT_USE_OBJC
 		dispatch_release(theReadSource);
 		#endif
 		close(theFileFD);
@@ -362,9 +336,9 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		
 		dispatch_sync(readQueue, ^{
 			
-			NSAssert(readSourceSuspended, @"Invalid logic - perhaps HTTPConnection has changed.");
+			NSAssert(self->readSourceSuspended, @"Invalid logic - perhaps HTTPConnection has changed.");
 			
-			readRequestLength = length;
+			self->readRequestLength = length;
 			[self resumeReadSource];
 		});
 		
@@ -400,7 +374,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		dispatch_sync(readQueue, ^{
 			
 			// Prevent any further calls to the connection
-			connection = nil;
+			self->connection = nil;
 			
 			// Cancel the readSource.
 			// We do this here because the readSource's eventBlock has retained self.
@@ -414,7 +388,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 - (void)dealloc {	HTTPLogTrace();
 
 	
-	#if NEEDS_DISPATCH_RETAIN_RELEASE
+	#if !OS_OBJECT_USE_OBJC
 	if (readQueue) dispatch_release(readQueue);
 	#endif
 	
