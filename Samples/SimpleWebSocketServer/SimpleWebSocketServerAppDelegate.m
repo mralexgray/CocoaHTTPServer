@@ -10,7 +10,7 @@
 
 @implementation SimpleWebSocketServerAppDelegate
 
-@synthesize window;
+@synthesize window, httpServer;
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
@@ -26,18 +26,18 @@
 	
 	// Tell the server to broadcast its presence via Bonjour.
 	// This allows browsers such as Safari to automatically discover our service.
-	[httpServer setDomain:@"mrgray.local"];
+//	[httpServer setDomain:@"mrgray.local"];
 	[httpServer setType:@"_http._tcp."];
-
+	httpServer.name = AZAPPBUNDLE.infoDictionary[@"CFBundleIdentifier"];
 	// Normally there's no need to run our server on any specific port.
 	// Technologies like Bonjour allow clients to dynamically discover the server's port at runtime.
 	// However, for easy testing you may want force a certain port so you can just hit the refresh button.
-	 [httpServer setPort:12345];
-
+	// [httpServer setPort:12345];
+	
 	// Serve files from our embedded Web folder
 	NSString *webPath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"Web"];
-	DDLogInfo(@"Setting document root: %@", webPath);
-	
+//	DDLogInfo(@"Setting document root: %@", webPath);
+
 	[httpServer setDocumentRoot:webPath];
 	
 	// Start the server (and check for problems)
@@ -47,6 +47,10 @@
 	{
 		DDLogError(@"Error starting HTTP Server: %@", error);
 	}
+	XX(httpServer.URL);
+	[_webView bind:@"mainFrameURL" toObject:httpServer withKeyPath:@"URL" transform:^id(id value) {
+		return [value path];
+	}];
 }
 
 @end

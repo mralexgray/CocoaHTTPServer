@@ -27,9 +27,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; //OFF; // | HTTP_LOG_FLAG_T
 	return self;
 }
 
-- (void)dealloc
-{
-	HTTPLogTrace();
+- (void)dealloc {	HTTPLogTrace();
+
 	
 }
 
@@ -42,9 +41,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; //OFF; // | HTTP_LOG_FLAG_T
 	return result;
 }
 
-- (UInt64)offset
-{
-	HTTPLogTrace();
+- (UInt64)offset {	HTTPLogTrace();
+
 	
 	return offset;
 }

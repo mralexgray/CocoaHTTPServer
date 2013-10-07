@@ -38,9 +38,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_OFF; // | HTTP_LOG_FLAG_TRACE;
 	// Nothing to do
 }
 
-- (NSData *)readDataOfLength:(NSUInteger)length
-{
-	HTTPLogTrace();
+- (NSData *)readDataOfLength:(NSUInteger)length {	HTTPLogTrace();
+
 	
 	return nil;
 }
@@ -50,23 +49,20 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_OFF; // | HTTP_LOG_FLAG_TRACE;
 	return YES;
 }
 
-- (NSDictionary *)httpHeaders
-{
-	HTTPLogTrace();
+- (NSDictionary *)httpHeaders {	HTTPLogTrace();
+
 	
 	return [NSDictionary dictionaryWithObject:redirectPath forKey:@"Location"];
 }
 
-- (NSInteger)status
-{
-	HTTPLogTrace();
+- (NSInteger)status {	HTTPLogTrace();
+
 	
 	return 302;
 }
 
-- (void)dealloc
-{
-	HTTPLogTrace();
+- (void)dealloc {	HTTPLogTrace();
+
 	
 }
 

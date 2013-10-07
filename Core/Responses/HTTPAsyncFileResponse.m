@@ -96,9 +96,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	return self;
 }
 
-- (void)abort
-{
-	HTTPLogTrace();
+- (void)abort {	HTTPLogTrace();
+
 	
 	[connection responseDidAbort:self];
 	aborted = YES;
@@ -161,9 +160,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	}
 }
 
-- (BOOL)openFileAndSetupReadSource
-{
-	HTTPLogTrace();
+- (BOOL)openFileAndSetupReadSource {	HTTPLogTrace();
+
 	
 	fileFD = open([filePath UTF8String], (O_RDONLY | O_NONBLOCK));
 	if (fileFD == NULL_FD)
@@ -307,9 +305,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	return fileLength;
 }
 
-- (UInt64)offset
-{
-	HTTPLogTrace();
+- (UInt64)offset {	HTTPLogTrace();
+
 	
 	return fileOffset;
 }
@@ -389,16 +386,14 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	return filePath;
 }
 
-- (BOOL)isAsynchronous
-{
-	HTTPLogTrace();
+- (BOOL)isAsynchronous {	HTTPLogTrace();
+
 	
 	return YES;
 }
 
-- (void)connectionDidClose
-{
-	HTTPLogTrace();
+- (void)connectionDidClose {	HTTPLogTrace();
+
 	
 	if (fileFD != NULL_FD)
 	{
@@ -416,9 +411,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	}
 }
 
-- (void)dealloc
-{
-	HTTPLogTrace();
+- (void)dealloc {	HTTPLogTrace();
+
 	
 	#if NEEDS_DISPATCH_RETAIN_RELEASE
 	if (readQueue) dispatch_release(readQueue);

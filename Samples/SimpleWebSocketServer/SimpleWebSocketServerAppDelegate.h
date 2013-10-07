@@ -4,11 +4,9 @@
 
 
 @interface SimpleWebSocketServerAppDelegate : NSObject <NSApplicationDelegate>
-{
-	HTTPServer *httpServer;
-	NSWindow *__unsafe_unretained window;
-}
 
+@property (strong)	HTTPServer *httpServer;
 @property (unsafe_unretained) IBOutlet NSWindow *window;
+@property (unsafe_unretained) IBOutlet WebView *webView;
 
 @end

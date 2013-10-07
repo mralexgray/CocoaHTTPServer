@@ -30,9 +30,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	return self;
 }
 
-- (BOOL)isChunked
-{
-	HTTPLogTrace();
+- (BOOL)isChunked {	HTTPLogTrace();
+
 	
 	return YES;
 }
@@ -64,9 +63,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	return result;
 }
 
-- (void)processReadBuffer
-{
-	HTTPLogTrace();
+- (void)processReadBuffer {	HTTPLogTrace();
+
 	
 	// At this point, the readBuffer has readBufferOffset bytes available.
 	// This method is in charge of updating the readBufferOffset.
@@ -282,9 +280,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 	[connection responseHasAvailableData:self];
 }
 
-- (void)dealloc
-{
-	HTTPLogTrace();
+- (void)dealloc {	HTTPLogTrace();
+
 	
 	
 }

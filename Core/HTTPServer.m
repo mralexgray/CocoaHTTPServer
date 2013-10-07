@@ -47,11 +47,10 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 
 @end
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark -
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 @implementation HTTPServer
+@synthesize name, domain, port, documentRoot;
 
 - (void) setRunning:(AZStatus)run {  NSError *error;
 	
@@ -59,6 +58,17 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	run  ? [self start:&error] : [self stop];
 	if (error || (_running = self.isRunning) != run) 
 		NSLog(@"Error %@ server: %@", run? @"starting" : @"stopping", error);
+}
+
+
++ (NSSet*) keyPathsForValuesAffectingURL {
+
+	return [NSSet setWithArray:@[@"running", @"port", @"domain",@"name", @"documentRoot"]];
+}
+
+- (NSURL*) URL {
+
+	return [NSURL URLWithString:[NSString stringWithFormat:@"http://%@:%@", self.domain, @(self.port)]];
 }
 
 /**
@@ -74,32 +84,25 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 		// Initialize underlying dispatch queue and GCD based tcp socket
 		serverQueue = dispatch_queue_create("HTTPServer", NULL);
 		asyncSocket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:serverQueue];
-		
 		// Use default connection class of HTTPConnection
 		connectionQueue = dispatch_queue_create("HTTPConnection", NULL);
 		connectionClass = [HTTPConnection self];
-		
 		// By default bind on all available interfaces, en1, wifi etc
 		interface = nil;
-		
 		// Use a default port of 0
 		// This will allow the kernel to automatically pick an open port for us
 		port = 0;
-		
 		// Configure default values for bonjour service
-		
 		// Bonjour domain. Use the local domain by default
 		domain = @"local.";
-		
 		// If using an empty string ("") for the service name when registering,
 		// the system will automatically use the "Computer Name".
 		// Passing in an empty string will also handle name conflicts
 		// by automatically appending a digit to the end of the name.
 		name = @"";
-		
 		// Initialize arrays to hold all the HTTP and webSocket connections
-		connections = [[NSMutableArray alloc] init];
-		webSockets  = [[NSMutableArray alloc] init];
+		connections = NSMutableArray.new;
+		webSockets  = NSMutableArray.new;
 		
 		connectionsLock = [[NSLock alloc] init];
 		webSocketsLock  = [[NSLock alloc] init];
@@ -125,9 +128,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
  * Standard Deconstructor.
  * Stops the server, and clients, and releases any resources connected with this instance.
 **/
-- (void)dealloc
-{
-	HTTPLogTrace();
+- (void)dealloc {	HTTPLogTrace();
+
 	
 	// Remove notification observer
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -145,9 +147,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	[asyncSocket setDelegate:nil delegateQueue:NULL];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Server Configuration
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * The document root is filesystem root for the webserver.
@@ -157,33 +157,21 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 - (NSString *)documentRoot
 {
 	__block NSString *result;
-	
-	dispatch_sync(serverQueue, ^{
-		result = documentRoot;
-	});
-	
+	dispatch_sync(serverQueue, ^{ result = documentRoot;	});
 	return result;
 }
 
-- (void)setDocumentRoot:(NSString *)value
-{
-	HTTPLogTrace();
-	
+- (void)setDocumentRoot:(NSString *)value {	HTTPLogTrace();
+
 	// Document root used to be of type NSURL.
 	// Add type checking for early warning to developers upgrading from older versions.
-	
-	if (value && ![value isKindOfClass:[NSString class]])
-	{
+	if (value && ![value isKindOfClass:NSString.class]) {
 		HTTPLogWarn(@"%@: %@ - Expecting NSString parameter, received %@ parameter",
 					THIS_FILE, THIS_METHOD, NSStringFromClass([value class]));
 		return;
 	}
-	
 	NSString *valueCopy = [value copy];
-	
-	dispatch_async(serverQueue, ^{
-		documentRoot = valueCopy;
-	});
+	dispatch_async(serverQueue, ^{ documentRoot = valueCopy;	});
 	
 }
 
@@ -204,9 +192,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	return result;
 }
 
-- (void)setConnectionClass:(Class)value
-{
-	HTTPLogTrace();
+- (void)setConnectionClass:(Class)value {	HTTPLogTrace();
+
 	
 	dispatch_async(serverQueue, ^{
 		connectionClass = value;
@@ -242,7 +229,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
  * By default this port is initially set to zero, which allows the kernel to pick an available port for us.
  * After the HTTP server has started, the port being used may be obtained by this method.
 **/
-- (UInt16)port
+- (NSUInteger)port
 {
 	__block UInt16 result;
 	
@@ -267,13 +254,9 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	return result;
 }
 
-- (void)setPort:(UInt16)value
-{
-	HTTPLogTrace();
-	
-	dispatch_async(serverQueue, ^{
-		port = value;
-	});
+- (void)setPort:(NSUInteger)value {	HTTPLogTrace();
+
+	dispatch_async(serverQueue, ^{ port = value; 	});
 }
 
 /**
@@ -291,9 +274,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
     return result;
 }
 
-- (void)setDomain:(NSString *)value
-{
-	HTTPLogTrace();
+- (void)setDomain:(NSString *)value {	HTTPLogTrace();
+
 	
 	NSString *valueCopy = [value copy];
 	
@@ -391,9 +373,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	
 	return result;
 }
-- (void)setTXTRecordDictionary:(NSDictionary *)value
-{
-	HTTPLogTrace();
+- (void)setTXTRecordDictionary:(NSDictionary *)value {	HTTPLogTrace();
+
 	
 	NSDictionary *valueCopy = [value copy];
 	
@@ -419,13 +400,10 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Server Control
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-- (BOOL)start:(NSError **)errPtr
-{
-	HTTPLogTrace();
+- (BOOL)start:(NSError **)errPtr {	HTTPLogTrace();
+
 	
 	__block BOOL success = YES;
 	__block NSError *err = nil;
@@ -457,9 +435,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	[self stop:NO];
 }
 
-- (void)stop:(BOOL)keepExistingConnections
-{
-	HTTPLogTrace();
+- (void)stop:(BOOL)keepExistingConnections {	HTTPLogTrace();
+
 	
 	dispatch_sync(serverQueue, ^{ @autoreleasepool {
 		
@@ -514,9 +491,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	[webSocketsLock unlock];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Server Status
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Returns the number of http client connections that are currently connected to the server.
@@ -546,9 +521,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	return result;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Incoming Connections
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (HTTPConfig *)config
 {
@@ -577,13 +550,10 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	[newConnection start];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Bonjour
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-- (void)publishBonjour
-{
-	HTTPLogTrace();
+- (void)publishBonjour {	HTTPLogTrace();
+
 	
 	NSAssert(dispatch_get_current_queue() == serverQueue, @"Invalid queue");
 	
@@ -616,9 +586,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	}
 }
 
-- (void)unpublishBonjour
-{
-	HTTPLogTrace();
+- (void)unpublishBonjour {	HTTPLogTrace();
+
 	
 	NSAssert(dispatch_get_current_queue() == serverQueue, @"Invalid queue");
 	
@@ -641,9 +610,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
  * Republishes the service via bonjour if the server is running.
  * If the service was not previously published, this method will publish it (if the server is running).
 **/
-- (void)republishBonjour
-{
-	HTTPLogTrace();
+- (void)republishBonjour {	HTTPLogTrace();
+
 	
 	dispatch_async(serverQueue, ^{
 		
@@ -679,9 +647,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	                                         [ns domain], [ns type], [ns name], errorDict);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Notifications
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * This method is automatically called when a notification of type HTTPConnectionDidDieNotification is posted.
@@ -715,9 +681,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 	[webSocketsLock unlock];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Bonjour Thread
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * NSNetService is runloop based, so it requires a thread with a runloop.
@@ -732,9 +696,8 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_INFO; // | HTTP_LOG_FLAG_TRACE;
 
 static NSThread *bonjourThread;
 
-+ (void)startBonjourThreadIfNeeded
-{
-	HTTPLogTrace();
++ (void)startBonjourThreadIfNeeded {	HTTPLogTrace();
+
 	
 	static dispatch_once_t predicate;
 	dispatch_once(&predicate, ^{
@@ -770,18 +733,16 @@ static NSThread *bonjourThread;
 	}
 }
 
-+ (void)executeBonjourBlock:(dispatch_block_t)block
-{
-	HTTPLogTrace();
++ (void)executeBonjourBlock:(dispatch_block_t)block {	HTTPLogTrace();
+
 	
 	NSAssert([NSThread currentThread] == bonjourThread, @"Executed on incorrect thread");
 	
 	block();
 }
 
-+ (void)performBonjourBlock:(dispatch_block_t)block
-{
-	HTTPLogTrace();
++ (void)performBonjourBlock:(dispatch_block_t)block {	HTTPLogTrace();
+
 	
 	[self performSelector:@selector(executeBonjourBlock:)
 	             onThread:bonjourThread

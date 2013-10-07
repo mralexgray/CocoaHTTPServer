@@ -112,9 +112,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 - (void)sendResponseHeadersAndBody;
 @end
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark -
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 @implementation HTTPConnection
 
@@ -189,9 +187,7 @@ static NSMutableArray *recentNonces;
 	return result;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Init, Dealloc:
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Sole Constructor.
@@ -241,9 +237,8 @@ static NSMutableArray *recentNonces;
 /**
  * Standard Deconstructor.
 **/
-- (void)dealloc
-{
-	HTTPLogTrace();
+- (void)dealloc {	HTTPLogTrace();
+
 	
 	#if NEEDS_DISPATCH_RETAIN_RELEASE
 	dispatch_release(connectionQueue);
@@ -258,17 +253,14 @@ static NSMutableArray *recentNonces;
 	}
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Method Support
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Returns whether or not the server will accept messages of a given method
  * at a particular URI.
 **/
-- (BOOL)supportsMethod:(NSString *)method atPath:(NSString *)path
-{
-	HTTPLogTrace();
+- (BOOL)supportsMethod:(NSString *)method atPath:(NSString *)path {	HTTPLogTrace();
+
 	
 	// Override me to support methods such as POST.
 	// 
@@ -299,9 +291,8 @@ static NSMutableArray *recentNonces;
  * This would be true in the case of a POST, where the client is sending data,
  * or for something like PUT where the client is supposed to be uploading a file.
 **/
-- (BOOL)expectsRequestBodyFromMethod:(NSString *)method atPath:(NSString *)path
-{
-	HTTPLogTrace();
+- (BOOL)expectsRequestBodyFromMethod:(NSString *)method atPath:(NSString *)path {	HTTPLogTrace();
+
 	
 	// Override me to add support for other methods that expect the client
 	// to send a body along with the request header.
@@ -319,9 +310,7 @@ static NSMutableArray *recentNonces;
 	return NO;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark HTTPS
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Returns whether or not the server is configured to be a secure server.
@@ -332,9 +321,8 @@ static NSMutableArray *recentNonces;
  * 
  * Note: In order to support secure connections, the sslIdentityAndCertificates method must be implemented.
 **/
-- (BOOL)isSecureServer
-{
-	HTTPLogTrace();
+- (BOOL)isSecureServer {	HTTPLogTrace();
+
 	
 	// Override me to create an https server...
 	
@@ -345,26 +333,22 @@ static NSMutableArray *recentNonces;
  * This method is expected to returns an array appropriate for use in kCFStreamSSLCertificates SSL Settings.
  * It should be an array of SecCertificateRefs except for the first element in the array, which is a SecIdentityRef.
 **/
-- (NSArray *)sslIdentityAndCertificates
-{
-	HTTPLogTrace();
+- (NSArray *)sslIdentityAndCertificates {	HTTPLogTrace();
+
 	
 	// Override me to provide the proper required SSL identity.
 	
 	return nil;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Password Protection
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Returns whether or not the requested resource is password protected.
  * In this generic implementation, nothing is password protected.
 **/
-- (BOOL)isPasswordProtected:(NSString *)path
-{
-	HTTPLogTrace();
+- (BOOL)isPasswordProtected:(NSString *)path {	HTTPLogTrace();
+
 	
 	// Override me to provide password protection...
 	// You can configure it for the entire server, or based on the current request
@@ -379,9 +363,8 @@ static NSMutableArray *recentNonces;
  * If at all possible, digest access authentication should be used because it's more secure.
  * Basic authentication sends passwords in the clear and should be avoided unless using SSL/TLS.
 **/
-- (BOOL)useDigestAccessAuthentication
-{
-	HTTPLogTrace();
+- (BOOL)useDigestAccessAuthentication {	HTTPLogTrace();
+
 	
 	// Override me to customize the authentication scheme
 	// Make sure you understand the security risks of using the weaker basic authentication
@@ -393,9 +376,8 @@ static NSMutableArray *recentNonces;
  * Returns the authentication realm.
  * In this generic implmentation, a default realm is used for the entire server.
 **/
-- (NSString *)realm
-{
-	HTTPLogTrace();
+- (NSString *)realm {	HTTPLogTrace();
+
 	
 	// Override me to provide a custom realm...
 	// You can configure it for the entire server, or based on the current request
@@ -406,9 +388,8 @@ static NSMutableArray *recentNonces;
 /**
  * Returns the password for the given username.
 **/
-- (NSString *)passwordForUser:(NSString *)username
-{
-	HTTPLogTrace();
+- (NSString *)passwordForUser:(NSString *)username {	HTTPLogTrace();
+
 	
 	// Override me to provide proper password authentication
 	// You can configure a password for the entire server, or custom passwords for users and/or resources
@@ -423,9 +404,8 @@ static NSMutableArray *recentNonces;
 /**
  * Returns whether or not the user is properly authenticated.
 **/
-- (BOOL)isAuthenticated
-{
-	HTTPLogTrace();
+- (BOOL)isAuthenticated {	HTTPLogTrace();
+
 	
 	// Extract the authentication information from the Authorization header
 	HTTPAuthenticationRequest *auth = [[HTTPAuthenticationRequest alloc] initWithRequest:request];
@@ -558,9 +538,8 @@ static NSMutableArray *recentNonces;
 /**
  * Adds a digest access authentication challenge to the given response.
 **/
-- (void)addDigestAuthChallenge:(HTTPMessage *)response
-{
-	HTTPLogTrace();
+- (void)addDigestAuthChallenge:(HTTPMessage *)response {	HTTPLogTrace();
+
 	
 	NSString *authFormat = @"Digest realm=\"%@\", qop=\"auth\", nonce=\"%@\"";
 	NSString *authInfo = [NSString stringWithFormat:authFormat, [self realm], [[self class] generateNonce]];
@@ -571,9 +550,8 @@ static NSMutableArray *recentNonces;
 /**
  * Adds a basic authentication challenge to the given response.
 **/
-- (void)addBasicAuthChallenge:(HTTPMessage *)response
-{
-	HTTPLogTrace();
+- (void)addBasicAuthChallenge:(HTTPMessage *)response {	HTTPLogTrace();
+
 	
 	NSString *authFormat = @"Basic realm=\"%@\"";
 	NSString *authInfo = [NSString stringWithFormat:authFormat, [self realm]];
@@ -581,9 +559,7 @@ static NSMutableArray *recentNonces;
 	[response setHeaderField:@"WWW-Authenticate" value:authInfo];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Core
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Starting point for the HTTP connection after it has been fully initialized (including subclasses).
@@ -659,9 +635,8 @@ static NSMutableArray *recentNonces;
 /**
  * Starts reading an HTTP request.
 **/
-- (void)startReadingRequest
-{
-	HTTPLogTrace();
+- (void)startReadingRequest {	HTTPLogTrace();
+
 	
 	[asyncSocket readDataToData:[GCDAsyncSocket CRLFData]
 	                withTimeout:TIMEOUT_READ_FIRST_HEADER_LINE
@@ -757,9 +732,8 @@ static NSMutableArray *recentNonces;
  * If successfull, the variables 'ranges' and 'rangeIndex' will be updated, and YES will be returned.
  * Otherwise, NO is returned, and the range request should be ignored.
  **/
-- (BOOL)parseRangeRequest:(NSString *)rangeHeader withContentLength:(UInt64)contentLength
-{
-	HTTPLogTrace();
+- (BOOL)parseRangeRequest:(NSString *)rangeHeader withContentLength:(UInt64)contentLength {	HTTPLogTrace();
+
 	
 	// Examples of byte-ranges-specifier values (assuming an entity-body of length 10000):
 	// 
@@ -914,9 +888,8 @@ static NSMutableArray *recentNonces;
  * This method is called after a full HTTP request has been received.
  * The current request is in the HTTPMessage request variable.
 **/
-- (void)replyToHTTPRequest
-{
-	HTTPLogTrace();
+- (void)replyToHTTPRequest {	HTTPLogTrace();
+
 	
 	if (HTTP_LOG_VERBOSE)
 	{
@@ -1030,9 +1003,8 @@ static NSMutableArray *recentNonces;
  * 
  * Note: The returned HTTPMessage is owned by the sender, who is responsible for releasing it.
 **/
-- (HTTPMessage *)newUniRangeResponse:(UInt64)contentLength
-{
-	HTTPLogTrace();
+- (HTTPMessage *)newUniRangeResponse:(UInt64)contentLength {	HTTPLogTrace();
+
 	
 	// Status Code 206 - Partial Content
 	HTTPMessage *response = [[HTTPMessage alloc] initResponseWithStatusCode:206 description:nil version:HTTPVersion1_1];
@@ -1054,9 +1026,8 @@ static NSMutableArray *recentNonces;
  * 
  * Note: The returned HTTPMessage is owned by the sender, who is responsible for releasing it.
 **/
-- (HTTPMessage *)newMultiRangeResponse:(UInt64)contentLength
-{
-	HTTPLogTrace();
+- (HTTPMessage *)newMultiRangeResponse:(UInt64)contentLength {	HTTPLogTrace();
+
 	
 	// Status Code 206 - Partial Content
 	HTTPMessage *response = [[HTTPMessage alloc] initResponseWithStatusCode:206 description:nil version:HTTPVersion1_1];
@@ -1358,9 +1329,8 @@ static NSMutableArray *recentNonces;
  * 
  * This method should only be called for standard (non-range) responses.
 **/
-- (void)continueSendingStandardResponseBody
-{
-	HTTPLogTrace();
+- (void)continueSendingStandardResponseBody {	HTTPLogTrace();
+
 	
 	// This method is called when either asyncSocket has finished writing one of the response data chunks,
 	// or when an asynchronous HTTPResponse object informs us that it has more available data for us to send.
@@ -1426,9 +1396,8 @@ static NSMutableArray *recentNonces;
  * 
  * This method should only be called for single-range responses.
 **/
-- (void)continueSendingSingleRangeResponseBody
-{
-	HTTPLogTrace();
+- (void)continueSendingSingleRangeResponseBody {	HTTPLogTrace();
+
 	
 	// This method is called when either asyncSocket has finished writing one of the response data chunks,
 	// or when an asynchronous response informs us that is has more available data for us to send.
@@ -1477,9 +1446,8 @@ static NSMutableArray *recentNonces;
  * 
  * This method should only be called for multi-range responses.
 **/
-- (void)continueSendingMultiRangeResponseBody
-{
-	HTTPLogTrace();
+- (void)continueSendingMultiRangeResponseBody {	HTTPLogTrace();
+
 	
 	// This method is called when either asyncSocket has finished writing one of the response data chunks,
 	// or when an asynchronous HTTPResponse object informs us that is has more available data for us to send.
@@ -1555,17 +1523,14 @@ static NSMutableArray *recentNonces;
 	}
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Responses
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Returns an array of possible index pages.
  * For example: {"index.html", "index.htm"}
 **/
-- (NSArray *)directoryIndexFileNames
-{
-	HTTPLogTrace();
+- (NSArray *)directoryIndexFileNames {	HTTPLogTrace();
+
 	
 	// Override me to support other index pages.
 	
@@ -1580,9 +1545,8 @@ static NSMutableArray *recentNonces;
 /**
  * Converts relative URI path into full file-system path.
 **/
-- (NSString *)filePathForURI:(NSString *)path allowDirectory:(BOOL)allowDirectory
-{
-	HTTPLogTrace();
+- (NSString *)filePathForURI:(NSString *)path allowDirectory:(BOOL)allowDirectory {	HTTPLogTrace();
+
 	
 	// Override me to perform custom path mapping.
 	// For example you may want to use a default file other than index.html, or perhaps support multiple types.
@@ -1686,9 +1650,8 @@ static NSMutableArray *recentNonces;
  * HTTPFileResponse is a wrapper for an NSFileHandle object, and is the preferred way to send a file response.
  * HTTPDataResponse is a wrapper for an NSData object, and may be used to send a custom response.
 **/
-- (NSObject<HTTPResponse> *)httpResponseForMethod:(NSString *)method URI:(NSString *)path
-{
-	HTTPLogTrace();
+- (NSObject<HTTPResponse> *)httpResponseForMethod:(NSString *)method URI:(NSString *)path {	HTTPLogTrace();
+
 	
 	// Override me to provide custom responses.
 	
@@ -1709,9 +1672,8 @@ static NSMutableArray *recentNonces;
 	return nil;
 }
 
-- (WebSocket *)webSocketForURI:(NSString *)path
-{
-	HTTPLogTrace();
+- (WebSocket *)webSocketForURI:(NSString *)path {	HTTPLogTrace();
+
 	
 	// Override me to provide custom WebSocket responses.
 	// To do so, simply override the base WebSocket implementation, and add your custom functionality.
@@ -1729,9 +1691,7 @@ static NSMutableArray *recentNonces;
 	return nil;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Uploads
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * This method is called after receiving all HTTP headers, but before reading any of the request body.
@@ -1767,9 +1727,7 @@ static NSMutableArray *recentNonces;
 	// the hook to flush any pending data to disk and maybe close the file.
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Errors
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Called if the HTML version is other than what is supported
@@ -1894,9 +1852,7 @@ static NSMutableArray *recentNonces;
 	
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Headers
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Gets the current date and time, formatted properly (according to RFC) for insertion into an HTTP header.
@@ -1940,9 +1896,8 @@ static NSMutableArray *recentNonces;
  * This method is called immediately prior to sending the response headers.
  * This method adds standard header fields, and then converts the response to an NSData object.
 **/
-- (NSData *)preprocessResponse:(HTTPMessage *)response
-{
-	HTTPLogTrace();
+- (NSData *)preprocessResponse:(HTTPMessage *)response {	HTTPLogTrace();
+
 	
 	// Override me to customize the response headers
 	// You'll likely want to add your own custom headers, and then return [super preprocessResponse:response]
@@ -1977,9 +1932,8 @@ static NSMutableArray *recentNonces;
  * This method is called immediately prior to sending the response headers (for an error).
  * This method adds standard header fields, and then converts the response to an NSData object.
 **/
-- (NSData *)preprocessErrorResponse:(HTTPMessage *)response
-{
-	HTTPLogTrace();
+- (NSData *)preprocessErrorResponse:(HTTPMessage *)response {	HTTPLogTrace();
+
 	
 	// Override me to customize the error response headers
 	// You'll likely want to add your own custom headers, and then return [super preprocessErrorResponse:response]
@@ -2026,9 +1980,7 @@ static NSMutableArray *recentNonces;
 	return [response messageData];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark GCDAsyncSocket Delegate
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * This method is called after the socket has successfully read data from the stream.
@@ -2493,18 +2445,15 @@ static NSMutableArray *recentNonces;
 /**
  * Sent after the socket has been disconnected.
 **/
-- (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)err
-{
-	HTTPLogTrace();
+- (void)socketDidDisconnect:(GCDAsyncSocket *)sock withError:(NSError *)err {	HTTPLogTrace();
+
 	
 	asyncSocket = nil;
 	
 	[self die];
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark HTTPResponse Notifications
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * This method may be called by asynchronous HTTPResponse objects.
@@ -2512,9 +2461,8 @@ static NSMutableArray *recentNonces;
  * 
  * This informs us that the response object has generated more data that we may be able to send.
 **/
-- (void)responseHasAvailableData:(NSObject<HTTPResponse> *)sender
-{
-	HTTPLogTrace();
+- (void)responseHasAvailableData:(NSObject<HTTPResponse> *)sender {	HTTPLogTrace();
+
 	
 	// We always dispatch this asynchronously onto our connectionQueue,
 	// even if the connectionQueue is the current queue.
@@ -2555,9 +2503,8 @@ static NSMutableArray *recentNonces;
  * This method is called if the response encounters some critical error,
  * and it will be unable to fullfill the request.
 **/
-- (void)responseDidAbort:(NSObject<HTTPResponse> *)sender
-{
-	HTTPLogTrace();
+- (void)responseDidAbort:(NSObject<HTTPResponse> *)sender {	HTTPLogTrace();
+
 	
 	// We always dispatch this asynchronously onto our connectionQueue,
 	// even if the connectionQueue is the current queue.
@@ -2577,18 +2524,15 @@ static NSMutableArray *recentNonces;
 	}});
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark Post Request
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * This method is called after each response has been fully sent.
  * Since a single connection may handle multiple request/responses, this method may be called multiple times.
  * That is, it will be called after completion of each response.
 **/
-- (void)finishResponse
-{
-	HTTPLogTrace();
+- (void)finishResponse {	HTTPLogTrace();
+
 	
 	// Override me if you want to perform any custom actions after a response has been fully sent.
 	// This is the place to release memory or resources associated with the last request.
@@ -2608,9 +2552,8 @@ static NSMutableArray *recentNonces;
  * This method is called after each successful response has been fully sent.
  * It determines whether the connection should stay open and handle another request.
 **/
-- (BOOL)shouldDie
-{
-	HTTPLogTrace();
+- (BOOL)shouldDie {	HTTPLogTrace();
+
 	
 	// Override me if you have any need to force close the connection.
 	// You may do so by simply returning YES.
@@ -2647,9 +2590,8 @@ static NSMutableArray *recentNonces;
 	return shouldDie;
 }
 
-- (void)die
-{
-	HTTPLogTrace();
+- (void)die {	HTTPLogTrace();
+
 	
 	// Override me if you want to perform any custom actions when a connection is closed.
 	// Then call [super die] when you're done.
@@ -2675,9 +2617,7 @@ static NSMutableArray *recentNonces;
 
 @end
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark -
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 @implementation HTTPConfig
 
