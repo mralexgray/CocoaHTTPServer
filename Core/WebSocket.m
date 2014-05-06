@@ -61,7 +61,7 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 #define WS_OP_PING                 9
 #define WS_OP_PONG                 10
 
-static inline BOOL WS_OP_IS_FINAL_FRAGMENT(UInt8 frame)
+static inline __unused BOOL WS_OP_IS_FINAL_FRAGMENT(UInt8 frame)
 {
 	return (frame & 0x80) ? YES : NO;
 }
@@ -348,7 +348,9 @@ static inline NSUInteger WS_PAYLOAD_LENGTH(UInt8 frame)
 - (NSString *)secWebSocketKeyResponseHeaderValue {
 	NSString *key = [request headerField: @"Sec-WebSocket-Key"];
 	NSString *guid = @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-	return [[key stringByAppendingString: guid] dataUsingEncoding: NSUTF8StringEncoding].sha1Digest.base64Encoded;
+	NSData *d = [[key stringByAppendingString: guid] dataUsingEncoding: NSUTF8StringEncoding];
+  id x = [d sha1Digest];
+  return [x base64Encoded];
 }
 
 - (void)sendResponseHeaders

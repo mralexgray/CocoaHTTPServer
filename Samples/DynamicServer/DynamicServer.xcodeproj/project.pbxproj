@@ -24,7 +24,7 @@
 		DC2E2E7A1298C0F8009F096E /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC2E2E791298C0F8009F096E /* Security.framework */; };
 		DC2E2ED31298C540009F096E /* Web in Resources */ = {isa = PBXBuildFile; fileRef = DC2E2ED01298C540009F096E /* Web */; };
 		DC2E2EE21298C60A009F096E /* MyHTTPConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = DC2E2EE11298C60A009F096E /* MyHTTPConnection.m */; };
-		DC3303BD12B0967000AEF314 /* HTTPResponseTest.m in Sources */ = {isa = PBXBuildFile; fileRef = DC3303BC12B0967000AEF314 /* HTTPResponseTest.m */; };
+		DC3303BD12B0967000AEF314 /* HTTPResponseTest.m in Sources */ = {isa = PBXBuildFile; fileRef = DC3303BC12B0967000AEF314 /* HTTPResponseTest.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		DC372ECA139DC2AC00A8407D /* DDData.m in Sources */ = {isa = PBXBuildFile; fileRef = DC372EAE139DC2AC00A8407D /* DDData.m */; };
 		DC372ECB139DC2AC00A8407D /* DDNumber.m in Sources */ = {isa = PBXBuildFile; fileRef = DC372EB0139DC2AC00A8407D /* DDNumber.m */; };
 		DC372ECC139DC2AC00A8407D /* DDRange.m in Sources */ = {isa = PBXBuildFile; fileRef = DC372EB2139DC2AC00A8407D /* DDRange.m */; };

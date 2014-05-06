@@ -5,7 +5,7 @@
 
 // Log levels: off, error, warn, info, verbose
 // Other flags: trace
-static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
+static const int httpLogLevel = HTTP_LOG_LEVEL_VERBOSE;// | HTTP_LOG_FLAG_TRACE;
 
 
 @implementation MyHTTPConnection
@@ -48,9 +48,9 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		// which takes a dictionary of replacement key-value pairs,
 		// and performs replacements on the fly as it uploads the file.
 		
-		NSString *computerName = [[NSHost currentHost] localizedName];
-		NSString *currentTime = [[NSDate date] description];
-		
+//		NSString *computerName = [[];
+//		NSString *currentTime = [[NSDate date] description];
+
 		NSString *story = @"<br/><br/>"
 		                   "I'll tell you a story     <br/>" \
 		                   "About Jack a Nory;        <br/>" \
@@ -59,13 +59,11 @@ static const int httpLogLevel = HTTP_LOG_LEVEL_WARN; // | HTTP_LOG_FLAG_TRACE;
 		                   "Of Jack and his brother,  <br/>" \
 		                   "And now my story is done. <br/>";
 		
-		NSMutableDictionary *replacementDict = [NSMutableDictionary dictionaryWithCapacity:5];
-		
-		[replacementDict setObject:computerName forKey:@"COMPUTER_NAME"];
-		[replacementDict setObject:currentTime  forKey:@"TIME"];
-		[replacementDict setObject:story        forKey:@"STORY"];
-		[replacementDict setObject:@"A"         forKey:@"ALPHABET"];
-		[replacementDict setObject:@"  QUACK  " forKey:@"QUACK"];
+		NSDictionary *replacementDict = @{
+    @"COMPUTER_NAME":NSHost.currentHost.localizedName,
+    @"TIME":NSDate.date.description,
+    @"STORY":story,
+    @"ALPHABET":@"A",@"QUACK":@"  QUACK  "};
 		
 		HTTPLogVerbose(@"%@[%p]: replacementDict = \n%@", THIS_FILE, self, replacementDict);
 		

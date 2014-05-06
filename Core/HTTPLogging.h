@@ -48,6 +48,8 @@
 
 #import "DDLog.h"
 
+void loadDummy();
+
 // Define logging context for every log message coming from the HTTP server.
 // The logging context can be extracted from the DDLogMessage from within the logging framework,
 // which gives loggers, formatters, and filters the ability to optionally process them differently.
